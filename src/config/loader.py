@@ -42,15 +42,22 @@ BOOL_FIELDS = {
     "allow_archives",
 }
 
-# Fields that should be parsed as integers
+# Full field names that should be parsed as integers
 INT_FIELDS = {
-    "id",  # for api_id, chat_id, topic_id
-    "interval",  # for check_interval
-    "seconds",  # for throttle_seconds
-    "downloads",  # for max_concurrent_downloads, max_downloads_per_run
-    "retries",
-    "delay",  # for base_delay, max_delay
+    "api_id",
+    "chat_id",
+    "topic_id",
+    "check_interval",
+    "throttle_seconds",
+    "max_concurrent_downloads",
+    "max_downloads_per_run",
+    "max_retries",
+    "base_delay",
+    "max_delay",
 }
+
+# Field name endings that indicate integers (for nested fields)
+INT_SUFFIXES = {"_id", "_interval", "_seconds", "_downloads", "_retries", "_delay"}
 
 # Top-level fields that should NOT be nested (underscore is part of name)
 FLAT_FIELDS = {
