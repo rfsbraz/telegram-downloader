@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+
+# Project
+.git/
+.github/
+.planning/
+downloads/
+.sessions/
+*.session
+*.session-journal
+
+# IDE
+.vscode/
+.idea/
+
+# Documentation
+*.md
+!README.md
+
+# CI/CD
+.gitignore

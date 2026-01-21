@@ -1,0 +1,43 @@
+# Ebook Forum Downloader - Featured Use Case
+#
+# Downloads ebooks from forum topics with PDF/EPUB/MOBI filtering.
+# Perfect for following ebook release forums and building a personal library.
+
+version: '3.8'
+
+services:
+  telegram-downloader:
+    image: yourusername/telegram-downloader:latest
+    container_name: telegram-ebook-downloader
+    restart: unless-stopped
+
+    environment:
+      # Telegram API credentials (get from https://my.telegram.org/apps)
+      - TDL_API_ID=YOUR_API_ID
+      - TDL_API_HASH=YOUR_API_HASH
+      - TDL_PHONE_NUMBER=YOUR_PHONE_NUMBER
+
+      # Daemon: Check every 5 minutes
+      - TDL_DAEMON_ENABLED=true
+      - TDL_DAEMON_CHECK_INTERVAL=300
+
+      # Notifications: Discord webhook for completion updates
+      - TDL_NOTIFICATIONS_ENABLED=true
+      - TDL_NOTIFICATIONS_DETAIL_LEVEL=summary
+      - TDL_NOTIFICATIONS_DISCORD_WEBHOOK_URL=YOUR_DISCORD_WEBHOOK_URL
+
+      # Source: Ebook forum topic (replace with your forum URL)
+      - TDL_SOURCES_0_URL=https://t.me/c/1234567890/123
+      - TDL_SOURCES_0_NAME=Ebook Releases
+      - TDL_SOURCES_0_FILTERS_EXTENSIONS=.pdf,.epub,.mobi,.azw3
+      - TDL_SOURCES_0_FILTERS_MIN_SIZE=100KB
+      - TDL_SOURCES_0_FILTERS_MAX_SIZE=500MB
+
+    volumes:
+      - ./ebooks:/downloads
+      - ./sessions:/.sessions
+
+    healthcheck:
+      test: ["CMD", "python3", "/app/healthcheck.py"]
+      interval: 2m
+      timeout: 10s

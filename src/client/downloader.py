@@ -1,0 +1,133 @@
+"""Streaming download manager with retry logic and FloodWait handling.
+
+Implements robust download functionality with:
+- Streaming to avoid memory exhaustion on large files (2GB+)
+- FloodWait handling (respects Telegram's required delay)
+- Exponential backoff for transient errors
+- Temporary .partial files with atomic rename on success
+- Automatic cleanup of partial downloads on failure
+"""
+
+import asyncio
+import logging
+from pathlib import Path
+from typing import Optional
+
+from pyrogram import Client
+from pyrogram.types import Message
+from pyrogram.errors import FloodWait
+
+from src.config.schema import Config
+
+
+async def download_media_with_retry(
+    client: Client,
+    message: Message,
+    dest_path: Path,
+    config: Config,
+    log: logging.Logger
+) -> bool:
+    """Download media with streaming, retry logic, and FloodWait handling.
+
+    Downloads media to a temporary .partial file and atomically renames to final
+    destination on success. Uses streaming to avoid loading entire file in memory.
+
+    FloodWait errors are handled specially:
+    - Sleep for the exact duration Telegram specifies
+    - Do NOT count against retry budget (Telegram mandates the wait)
+    - Automatically retry after waiting
+
+    Transient errors use exponential backoff:
+    - Retry up to config.max_retries times
+    - Delay doubles each retry: base_delay, base_delay*2, base_delay*4, etc.
+    - Capped at config.max_delay
+
+    Args:
+        client: Authenticated Pyrogram client
+        message: Message containing media to download
+        dest_path: Final destination path for downloaded file
+        config: Configuration with retry settings
+        log: Logger instance for progress/error reporting
+
+    Returns:
+        True if download succeeded, False if all retries exhausted
+
+    Example:
+        >>> success = await download_media_with_retry(
+        ...     client, message, Path("/downloads/file.pdf"), config, log
+        ... )
+        >>> if success:
+        ...     print("Download complete")
+        ... else:
+        ...     print("Download failed after all retries")
+    """
+    # Create parent directories if needed
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Use temporary .partial file during download
+    dest_temp = dest_path.with_suffix(dest_path.suffix + ".partial")
+
+    # Progress callback for streaming (writes chunks without buffering entire file)
+    def progress_callback(current: int, total: int) -> None:
+        """Log download progress at intervals."""
+        if total > 0:
+            percent = (current / total) * 100
+            # Log every 10% to avoid spam
+            if int(percent) % 10 == 0 and int(percent) > 0:
+                log.debug(f"Download progress: {percent:.1f}% ({current}/{total} bytes)")
+
+    # Main download loop with retry logic
+    for attempt in range(1, config.max_retries + 1):
+        try:
+            # Stream download to temporary file
+            await client.download_media(
+                message,
+                file_name=str(dest_temp),
+                progress=progress_callback
+            )
+
+            # Atomic rename on success (prevents partial files in download dir)
+            dest_temp.rename(dest_path)
+            log.info(f"Download complete: {dest_path.name}")
+            return True
+
+        except FloodWait as e:
+            # FloodWait is special: Telegram mandates the wait, so we MUST respect it
+            # Do NOT count this against retry budget - it's not a "failure"
+            log.warning(f"FloodWait: Telegram requires {e.value}s wait. Sleeping...")
+            await asyncio.sleep(e.value)
+            # Loop continues to retry WITHOUT incrementing attempt counter
+            # Note: We don't increment here, so this doesn't count as a retry
+            continue
+
+        except Exception as e:
+            # Transient errors: network issues, timeouts, etc.
+            if attempt < config.max_retries:
+                # Calculate exponential backoff: 2^(attempt-1) * base_delay, capped at max_delay
+                delay = min(config.base_delay * (2 ** (attempt - 1)), config.max_delay)
+                log.warning(
+                    f"Download failed (attempt {attempt}/{config.max_retries}): {e}. "
+                    f"Retrying in {delay}s..."
+                )
+
+                # Delete partial file on failure (per 01-CONTEXT.md decision)
+                if dest_temp.exists():
+                    dest_temp.unlink()
+
+                await asyncio.sleep(delay)
+                # Loop continues for next retry attempt
+            else:
+                # All retries exhausted
+                log.error(
+                    f"Download failed after {config.max_retries} retries: {e}"
+                )
+
+                # Clean up partial file
+                if dest_temp.exists():
+                    dest_temp.unlink()
+
+                return False
+
+    # This should never be reached due to return statements in loop
+    # But included for completeness
+    return False

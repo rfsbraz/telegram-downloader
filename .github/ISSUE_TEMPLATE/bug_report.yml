@@ -1,0 +1,79 @@
+name: Bug Report
+description: Report a bug to help us improve stability and reliability.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping improve Telegram Media Downloader. Please provide as much detail as possible so we can reproduce and fix the issue quickly.
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: Short one-line description of the problem.
+      placeholder: Downloader fails when filtering by extension
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Steps to Reproduce
+      description: Provide detailed steps and include any relevant configuration snippets or commands.
+      placeholder: |
+        1. Configure filters with extension .pdf
+        2. Run docker compose up
+        3. Observe error in logs
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: Describe what you expected to happen instead.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened? Include error messages or log excerpts.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Provide the image tag, release number, or git commit hash.
+      placeholder: latest, v1.2.3, 3f8c2ab
+    validations:
+      required: false
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Deployment Environment
+      description: Where are you running telegram-downloader?
+      options:
+        - Docker (Linux)
+        - Docker (macOS)
+        - Docker (Windows)
+        - Bare metal / Python runtime
+        - Other (add detail below)
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs
+      description: Paste relevant log output. Use triple backticks for code blocks.
+      render: shell
+    validations:
+      required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional Context
+      description: Any other information that might help us troubleshoot.
+    validations:
+      required: false

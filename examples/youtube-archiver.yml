@@ -1,0 +1,33 @@
+# YouTube Channel Archiver
+#
+# Archives video files from multiple YouTube mirror channels.
+
+version: '3.8'
+
+services:
+  telegram-downloader:
+    image: yourusername/telegram-downloader:latest
+    container_name: telegram-youtube-archiver
+    restart: unless-stopped
+
+    environment:
+      - TDL_API_ID=YOUR_API_ID
+      - TDL_API_HASH=YOUR_API_HASH
+      - TDL_PHONE_NUMBER=YOUR_PHONE_NUMBER
+
+      - TDL_DAEMON_ENABLED=true
+      - TDL_DAEMON_CHECK_INTERVAL=600  # Check every 10 minutes
+
+      # Source 1: Main YouTube mirror
+      - TDL_SOURCES_0_URL=https://t.me/youtube_mirror_channel
+      - TDL_SOURCES_0_FILTERS_EXTENSIONS=.mp4,.mkv,.webm
+      - TDL_SOURCES_0_FILTERS_MIN_SIZE=10MB
+
+      # Source 2: Backup mirror
+      - TDL_SOURCES_1_URL=https://t.me/backup_mirror_channel
+      - TDL_SOURCES_1_FILTERS_EXTENSIONS=.mp4,.mkv,.webm
+      - TDL_SOURCES_1_FILTERS_MIN_SIZE=10MB
+
+    volumes:
+      - ./youtube:/downloads
+      - ./sessions:/.sessions

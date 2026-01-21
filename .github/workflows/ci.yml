@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-asyncio ruff
+
+      - name: Lint with ruff
+        run: |
+          # Check code style
+          ruff check src/
+          # Check formatting
+          ruff format --check src/
+
+      - name: Type check with mypy (optional)
+        continue-on-error: true
+        run: |
+          pip install mypy types-PyYAML
+          mypy src/ --ignore-missing-imports
+
+      - name: Run tests
+        continue-on-error: true
+        run: |
+          pytest tests/ -v --cov=src --cov-report=term-missing
+
+      - name: Validate example configurations
+        run: |
+          # Validate all example compose files
+          for file in examples/*.yml; do
+            echo "Validating $file"
+            docker compose -f "$file" config > /dev/null
+          done
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'

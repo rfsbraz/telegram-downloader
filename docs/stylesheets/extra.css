@@ -1,0 +1,110 @@
+/* Custom Styles for Telegram Downloader Documentation */
+
+/* Feature grid cards */
+.md-typeset .grid.cards {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+}
+
+.md-typeset .grid.cards > * {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  transition: all 0.3s ease;
+}
+
+.md-typeset .grid.cards > *:hover {
+  border-color: var(--md-accent-fg-color);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
+/* Enhanced code blocks */
+.md-typeset code {
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.3rem;
+  background-color: var(--md-code-bg-color);
+  font-size: 0.85em;
+}
+
+/* Button enhancements */
+.md-typeset .md-button {
+  margin: 0.4rem 0.4rem 0.4rem 0;
+}
+
+.md-typeset .md-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Admonition custom colors */
+.md-typeset .admonition.success {
+  border-left-color: #4caf50;
+}
+
+.md-typeset .admonition.success > .admonition-title {
+  background-color: rgba(76, 175, 80, 0.1);
+}
+
+/* Table improvements */
+.md-typeset table:not([class]) {
+  font-size: 0.85rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.md-typeset table:not([class]) th {
+  background-color: var(--md-primary-fg-color);
+  color: white;
+  font-weight: 600;
+}
+
+/* Hero section on home page */
+.md-typeset h1:first-of-type {
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+}
+
+/* Icon sizing in grid cards */
+.md-typeset .grid.cards .lg.middle {
+  font-size: 2.5rem;
+  opacity: 0.8;
+}
+
+/* Task list checkboxes */
+.md-typeset .task-list-item input[type="checkbox"] {
+  margin-right: 0.5rem;
+}
+
+/* Code block title */
+.md-typeset .highlight > pre {
+  border-radius: 0.5rem;
+}
+
+/* Navigation improvements */
+.md-nav__item--active > .md-nav__link {
+  font-weight: 600;
+}
+
+/* Footer styling */
+.md-footer {
+  background-color: var(--md-primary-fg-color);
+}
+
+/* Responsive adjustments */
+@media screen and (max-width: 76.1875em) {
+  .md-typeset h1:first-of-type {
+    font-size: 2rem;
+  }
+}
+
+@media screen and (max-width: 44.9375em) {
+  .md-typeset h1:first-of-type {
+    font-size: 1.75rem;
+  }
+
+  .md-typeset .grid.cards {
+    grid-template-columns: 1fr;
+  }
+}

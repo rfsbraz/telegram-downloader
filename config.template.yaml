@@ -1,0 +1,211 @@
+# Telegram Media Downloader Configuration
+# Copy to config.yaml and fill in your values
+# Get api_id and api_hash from https://my.telegram.org
+
+# ============================================================
+# TELEGRAM API CREDENTIALS (REQUIRED)
+# ============================================================
+
+# Telegram API ID - Get from https://my.telegram.org/apps
+# Must be a positive integer
+api_id: 12345
+
+# Telegram API Hash - Get from https://my.telegram.org/apps
+# Must be a non-empty string
+api_hash: "your_api_hash_here"
+
+# Phone number for authentication (with country code)
+# Example: "+1234567890" or "+55123456789"
+phone_number: "+1234567890"
+
+
+# ============================================================
+# DIRECTORY CONFIGURATION
+# ============================================================
+
+# Where to save downloaded files
+# Can use environment variable: ${DOWNLOAD_DIR}
+download_dir: "/downloads"
+
+# Where to store Telegram session files (keep secure!)
+# Session files allow reconnection without re-authentication
+# NEVER commit session files to version control
+session_dir: "/app/.sessions"
+
+
+# ============================================================
+# LOGGING CONFIGURATION
+# ============================================================
+
+# Path to log file (optional)
+# Set to null or omit to disable file logging
+log_file: "/app/downloader.log"
+
+# Logging verbosity level
+# Options: quiet (warnings only), normal (info + warnings), verbose (debug)
+verbosity: "normal"
+
+
+# ============================================================
+# MULTI-SOURCE CONFIGURATION
+# ============================================================
+
+# Global filter defaults (apply to all sources unless overridden)
+global_filters:
+  # File extensions to download (case-insensitive)
+  extensions: [".pdf", ".epub", ".mobi", ".azw", ".azw3"]
+
+  # Whether to allow downloading archive files
+  allow_archives: false
+
+  # Archive file extensions (only applies if allow_archives is true)
+  archive_exts: [".zip", ".rar", ".7z"]
+
+  # File size limits (optional, supports KB/MB/GB units)
+  min_size: "1KB"      # Minimum file size (skip smaller files)
+  max_size: "2GB"      # Maximum file size (skip larger files)
+
+  # Date range filter (optional, ISO 8601 format in UTC)
+  # only_after: "2025-01-01T00:00:00Z"   # Only download files after this date
+  # only_before: "2025-12-31T23:59:59Z"  # Only download files before this date
+
+  # Filename pattern filters (optional, supports wildcards)
+  include_patterns: []  # Only download files matching these patterns (e.g., ["*book*", "*novel*"])
+  exclude_patterns: []  # Skip files matching these patterns (e.g., ["*sample*", "*preview*"])
+
+# Maximum concurrent downloads (1-10)
+max_concurrent_downloads: 3
+
+
+# ============================================================
+# DAEMON MODE CONFIGURATION (OPTIONAL)
+# ============================================================
+
+# Daemon mode enables continuous background operation
+# When enabled=true, the downloader runs as a service and periodically checks sources for new content
+# When enabled=false (default), the downloader runs once and exits
+daemon:
+  enabled: false              # Enable continuous background operation
+  check_interval: 300         # Seconds between checks (default: 300 = 5 minutes)
+                              # Allowed range: 60-86400 seconds (1 minute to 24 hours)
+                              # Recommendations:
+                              #   - 300-600s (5-10 min) for most use cases
+                              #   - 60-300s (1-5 min) for high-priority monitoring
+                              #   - 900-3600s (15-60 min) for low-priority archival
+  health_file: "/app/health_status.txt"  # Docker HEALTHCHECK file path
+  # log_level: "INFO"         # Override log level (DEBUG, INFO, WARNING, ERROR)
+                              # If not set, uses LOG_LEVEL environment variable
+
+
+# List of Telegram sources to download from
+sources:
+  # Example 1: Public channel by URL
+  - url: "https://t.me/ebook_channel"
+    name: "Ebook Channel"  # Optional display name
+    # filters: {}  # Optional per-source filter overrides (leave commented to use global_filters)
+
+  # Example 2: Private channel by numeric ID with custom filters
+  - chat_id: -1001234567890
+    name: "Private Library"
+    filters:
+      extensions: [".pdf"]  # Override: only PDFs from this source
+      min_size: "5MB"       # Override: larger files only from this source
+
+  # Example 3: Forum topic (specific discussion thread)
+  - url: "https://t.me/c/1234567890/5"
+    name: "Book Club - Topic 5"
+    # Uses global_filters since no filters specified
+
+  # Example 4: Pattern-based filtering
+  - url: "https://t.me/mixed_content"
+    name: "Mixed Content Channel"
+    filters:
+      include_patterns: ["*book*", "*novel*"]  # Only files with "book" or "novel" in name
+      exclude_patterns: ["*sample*", "*preview*"]  # Skip samples and previews
+
+
+# ============================================================
+# LEGACY SOURCE CONFIGURATION (DEPRECATED)
+# ============================================================
+# The following fields are deprecated and will be removed in a future version.
+# Please migrate to the sources list above for multi-source support.
+
+# DEPRECATED: Use sources list instead
+# chat_id: -1001234567890
+# chat_username: ""
+# chat_title_hint: "My Group"
+# topics: []
+
+
+# ============================================================
+# LEGACY FILE FILTERING (DEPRECATED)
+# ============================================================
+# The following fields are deprecated. Use global_filters instead.
+
+# DEPRECATED: Use global_filters.extensions instead
+ebook_exts:
+  - ".epub"
+  - ".mobi"
+  - ".pdf"
+
+# DEPRECATED: Use global_filters.allow_archives instead
+allow_archives: false
+
+# DEPRECATED: Use global_filters.archive_exts instead
+archive_exts:
+  - ".zip"
+  - ".rar"
+  - ".7z"
+
+
+# ============================================================
+# DOWNLOAD LIMITS (LEGACY)
+# ============================================================
+
+# DEPRECATED: Use max_concurrent_downloads instead
+# Maximum files to download per run (per topic if using forums)
+# Set to 0 for unlimited downloads
+max_downloads_per_run: 0
+
+
+# ============================================================
+# RETRY CONFIGURATION
+# ============================================================
+
+# Maximum number of retry attempts for failed downloads
+# After this many failures, the download is skipped
+max_retries: 2
+
+# Initial retry delay in seconds (doubles with each retry)
+# Exponential backoff: first retry after 2s, second after 4s, etc.
+base_delay: 2
+
+# Maximum retry delay in seconds (cap for exponential backoff)
+# Prevents delays from growing too large
+max_delay: 60
+
+
+# ============================================================
+# STATE MANAGEMENT (LEGACY)
+# ============================================================
+
+# Path to state file (tracks download progress)
+# Optional - will default to /app/state.yaml if not specified
+state_file: "/app/state.yaml"
+
+
+# ============================================================
+# ENVIRONMENT VARIABLE EXAMPLES
+# ============================================================
+# You can use environment variables in this file:
+#
+# api_id: ${API_ID}
+# api_hash: ${API_HASH}
+# download_dir: ${DOWNLOAD_DIR}
+#
+# Or override config values with environment variables:
+# export API_ID=12345
+# export API_HASH="your_hash"
+# export DOWNLOAD_DIR="/custom/path"
+#
+# Environment variables take precedence over config file values

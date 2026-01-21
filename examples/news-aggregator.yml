@@ -1,0 +1,28 @@
+# News Aggregator
+#
+# Downloads media from news channels with date filtering.
+
+version: '3.8'
+
+services:
+  telegram-downloader:
+    image: yourusername/telegram-downloader:latest
+    container_name: telegram-news-aggregator
+    restart: unless-stopped
+
+    environment:
+      - TDL_API_ID=YOUR_API_ID
+      - TDL_API_HASH=YOUR_API_HASH
+      - TDL_PHONE_NUMBER=YOUR_PHONE_NUMBER
+
+      - TDL_DAEMON_ENABLED=true
+      - TDL_DAEMON_CHECK_INTERVAL=180  # Check every 3 minutes (news is fast)
+
+      # Source: News channel with date filter (last 7 days)
+      - TDL_SOURCES_0_URL=https://t.me/news_channel
+      - TDL_SOURCES_0_FILTERS_EXTENSIONS=.jpg,.png,.mp4
+      - TDL_SOURCES_0_FILTERS_MIN_DATE=2026-01-14  # Replace with 7 days ago
+
+    volumes:
+      - ./news:/downloads
+      - ./sessions:/.sessions

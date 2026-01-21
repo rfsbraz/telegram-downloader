@@ -1,0 +1,33 @@
+# Session files - NEVER commit these!
+*.session
+*.session-journal
+.sessions/
+
+# State and logs
+state.yaml
+state.yaml.tmp
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# Config (user-specific)
+config.yaml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

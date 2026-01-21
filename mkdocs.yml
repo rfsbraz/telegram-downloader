@@ -1,0 +1,186 @@
+site_name: Telegram Media Downloader
+site_description: Automated Telegram media downloader daemon with multi-source support, flexible filtering, and Docker deployment
+site_author: Telegram Downloader Contributors
+site_url: https://rfsbraz.github.io/telegram-downloader/
+
+# Repository
+repo_name: rfsbraz/telegram-downloader
+repo_url: https://github.com/rfsbraz/telegram-downloader
+edit_uri: edit/master/docs/
+
+# Copyright
+copyright: Copyright &copy; 2026 Telegram Downloader Contributors
+
+# Configuration
+theme:
+  name: material
+  language: en
+
+  # Color scheme
+  palette:
+    # Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+
+    # Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+  # Features
+  features:
+    - navigation.instant        # Instant loading
+    - navigation.instant.progress  # Progress indicator
+    - navigation.tracking       # Anchor tracking
+    - navigation.tabs           # Top-level tabs
+    - navigation.tabs.sticky    # Sticky tabs
+    - navigation.sections       # Section index pages
+    - navigation.expand         # Expand sections by default
+    - navigation.path           # Breadcrumbs
+    - navigation.indexes        # Section index pages
+    - navigation.top            # Back to top button
+    - navigation.footer         # Footer navigation
+    - search.suggest            # Search suggestions
+    - search.highlight          # Highlight search results
+    - search.share              # Share search results
+    - toc.follow                # Follow TOC
+    - toc.integrate             # Integrate TOC
+    - content.code.copy         # Copy code button
+    - content.code.annotate     # Code annotations
+    - content.tabs.link         # Link tabs
+    - content.action.edit       # Edit button
+    - content.action.view       # View source button
+
+  # Icon
+  icon:
+    repo: fontawesome/brands/github
+    edit: material/pencil
+    view: material/eye
+
+  # Logo and favicon
+  logo: material/cloud-download
+  favicon: material/cloud-download
+
+# Plugins
+plugins:
+  - search:
+      separator: '[\s\-,:!=\[\]()"/]+|(?!\b)(?=[A-Z][a-z])|\.(?!\d)|&[lg]t;'
+      lang:
+        - en
+
+  - minify:
+      minify_html: true
+      minify_js: true
+      minify_css: true
+      htmlmin_opts:
+        remove_comments: true
+      cache_safe: true
+
+  - git-revision-date-localized:
+      enable_creation_date: true
+      type: timeago
+      fallback_to_build_date: true
+
+# Extensions
+markdown_extensions:
+  # Python Markdown
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - toc:
+      permalink: true
+      permalink_title: Anchor link to this section
+      toc_depth: 3
+
+  # Python Markdown Extensions
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+      use_pygments: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.snippets:
+      auto_append:
+        - docs/includes/abbreviations.md
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+# Additional CSS
+extra_css:
+  - stylesheets/extra.css
+
+# Additional JavaScript
+extra_javascript:
+  - javascripts/extra.js
+
+# Extra
+extra:
+  # Social links
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/rfsbraz/telegram-downloader
+      name: GitHub Repository
+    - icon: fontawesome/brands/docker
+      link: https://hub.docker.com/r/rfsbraz/telegram-downloader
+      name: Docker Hub
+
+  # Version
+  version:
+    provider: mike
+    default: latest
+
+  # Analytics (optional - uncomment and configure)
+  # analytics:
+  #   provider: google
+  #   property: G-XXXXXXXXXX
+
+# Navigation
+nav:
+  - Home: index.md
+
+  - Getting Started:
+    - Quick Start: quickstart.md
+    - Configuration: configuration.md
+
+  - Operations:
+    - Troubleshooting: troubleshooting.md
+    - Deployment: deployment.md
+
+  - Examples:
+    - Overview: examples/index.md
+    - Ebook Forum: examples/ebook-forum.md
+    - YouTube Archiver: examples/youtube-archiver.md
+    - News Aggregator: examples/news-aggregator.md
+    - Personal Backup: examples/personal-backup.md

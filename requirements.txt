@@ -1,0 +1,4 @@
+pyrogram>=2.0.106
+pyyaml>=6.0.3
+pydantic>=2.0.0
+requests>=2.31.0

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://rfsbraz.github.io/telegram-downloader/
+    about: Review the documentation for configuration, deployment, and troubleshooting guides.
+  - name: Security Reports
+    url: https://github.com/rfsbraz/telegram-downloader/security/advisories/new
+    about: Please report security vulnerabilities privately through GitHub Security Advisories.
