@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/rfsbraz/telegram-downloader/compare/v1.1.0...v1.1.1) (2026-01-21)
+
+
+### Bug Fixes
+
+* incorrect field mapping ([f168e72](https://github.com/rfsbraz/telegram-downloader/commit/f168e725419baafe1fd3f77a8360d0ba8cb96d2d))
+
 # [1.1.0](https://github.com/rfsbraz/telegram-downloader/compare/v1.0.5...v1.1.0) (2026-01-21)
 
 
