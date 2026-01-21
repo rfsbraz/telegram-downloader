@@ -28,8 +28,8 @@ RUN apt-get update && \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Python packages from builder stage
-COPY --from=builder /root/.local /root/.local
+# Copy Python packages from builder stage to a shared location
+COPY --from=builder /root/.local /usr/local
 
 # Copy application code
 COPY src/ ./src/
@@ -40,8 +40,7 @@ RUN mkdir -p /downloads /.sessions && \
     chmod 700 /.sessions
 
 # Environment variables
-ENV PATH=/root/.local/bin:$PATH \
-    PYTHONUNBUFFERED=1 \
+ENV PYTHONUNBUFFERED=1 \
     TDL_DOWNLOAD_DIR=/downloads \
     TDL_DAEMON_HEALTH_FILE=/app/health_status.txt
 
