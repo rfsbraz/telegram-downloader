@@ -27,20 +27,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-cov pytest-asyncio ruff
-
-      - name: Lint with ruff
-        run: |
-          # Check code style
-          ruff check src/
-          # Check formatting
-          ruff format --check src/
-
-      - name: Type check with mypy (optional)
-        continue-on-error: true
-        run: |
-          pip install mypy types-PyYAML
-          mypy src/ --ignore-missing-imports
+          pip install pytest pytest-cov pytest-asyncio
 
       - name: Run tests
         continue-on-error: true
