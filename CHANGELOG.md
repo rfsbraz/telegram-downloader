@@ -1,3 +1,10 @@
+## [1.0.5](https://github.com/rfsbraz/telegram-downloader/compare/v1.0.4...v1.0.5) (2026-01-21)
+
+
+### Bug Fixes
+
+* dockerfile build issue ([2db390f](https://github.com/rfsbraz/telegram-downloader/commit/2db390f213afecd669ea02b57993b1633e13e8bc))
+
 ## [1.0.4](https://github.com/rfsbraz/telegram-downloader/compare/v1.0.3...v1.0.4) (2026-01-21)
 
 
