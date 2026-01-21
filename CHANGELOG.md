@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/rfsbraz/telegram-downloader/compare/v1.0.0...v1.0.1) (2026-01-21)
+
+
+### Bug Fixes
+
+* remove pyproject ([662652b](https://github.com/rfsbraz/telegram-downloader/commit/662652b7a351d31b4ebcb8553e7cc2a6f5857ca9))
+
 # 1.0.0 (2026-01-21)
 
 
