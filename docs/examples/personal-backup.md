@@ -305,6 +305,6 @@ See [Troubleshooting Guide](../troubleshooting.md) for more help.
 - [News Aggregator](news-aggregator.md) - Multi-source configuration
 - [YouTube Archiver](youtube-archiver.md) - Video content backup
 
-[:material-download: Download personal-backup.yml](../../examples/personal-backup.yml){ .md-button }
+[:material-download: Download personal-backup.yml](https://raw.githubusercontent.com/rfsbraz/telegram-downloader/master/examples/personal-backup.yml){ .md-button }
 
 [Back to Examples](index.md){ .md-button }

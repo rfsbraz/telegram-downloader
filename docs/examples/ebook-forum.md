@@ -332,7 +332,7 @@ See [Production Deployment Guide](../deployment.md) for detailed setup.
 
 Download the complete example:
 
-[:material-download: Download ebook-forum.yml](../../examples/ebook-forum.yml){ .md-button }
+[:material-download: Download ebook-forum.yml](https://raw.githubusercontent.com/rfsbraz/telegram-downloader/master/examples/ebook-forum.yml){ .md-button }
 
 ## Related Examples
 

@@ -213,6 +213,6 @@ Track breaking stories across multiple sources in real-time.
 
 See [Troubleshooting Guide](../troubleshooting.md) for more help.
 
-[:material-download: Download news-aggregator.yml](../../examples/news-aggregator.yml){ .md-button }
+[:material-download: Download news-aggregator.yml](https://raw.githubusercontent.com/rfsbraz/telegram-downloader/master/examples/news-aggregator.yml){ .md-button }
 
 [Back to Examples](index.md){ .md-button }

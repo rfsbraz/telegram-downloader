@@ -152,6 +152,6 @@ youtube_archive/
 
 See [Troubleshooting Guide](../troubleshooting.md) for more help.
 
-[:material-download: Download youtube-archiver.yml](../../examples/youtube-archiver.yml){ .md-button }
+[:material-download: Download youtube-archiver.yml](https://raw.githubusercontent.com/rfsbraz/telegram-downloader/master/examples/youtube-archiver.yml){ .md-button }
 
 [Back to Examples](index.md){ .md-button }
