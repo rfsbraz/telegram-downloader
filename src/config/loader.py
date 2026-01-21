@@ -44,16 +44,53 @@ BOOL_FIELDS = {
 
 # Fields that should be parsed as integers
 INT_FIELDS = {
+    "id",  # for api_id, chat_id, topic_id
+    "interval",  # for check_interval
+    "seconds",  # for throttle_seconds
+    "downloads",  # for max_concurrent_downloads, max_downloads_per_run
+    "retries",
+    "delay",  # for base_delay, max_delay
+}
+
+# Top-level fields that should NOT be nested (underscore is part of name)
+FLAT_FIELDS = {
     "api_id",
-    "chat_id",
-    "topic_id",
-    "check_interval",
-    "throttle_seconds",
+    "api_hash",
+    "phone_number",
+    "download_dir",
+    "session_dir",
+    "log_file",
+    "state_file",
     "max_concurrent_downloads",
     "max_downloads_per_run",
     "max_retries",
     "base_delay",
     "max_delay",
+    "chat_id",
+    "chat_username",
+    "chat_title_hint",
+    "ebook_exts",
+    "allow_archives",
+    "archive_exts",
+}
+
+# Two-level nested fields (parent_child format)
+NESTED_MAPPINGS = {
+    "daemon_enabled": ("daemon", "enabled"),
+    "daemon_check_interval": ("daemon", "check_interval"),
+    "daemon_health_file": ("daemon", "health_file"),
+    "daemon_log_level": ("daemon", "log_level"),
+    "notifications_enabled": ("notifications", "enabled"),
+    "notifications_detail_level": ("notifications", "detail_level"),
+    "notifications_throttle_seconds": ("notifications", "throttle_seconds"),
+    "notifications_discord_webhook_url": ("notifications", "discord_webhook_url"),
+    "notifications_discord_username": ("notifications", "discord_username"),
+    "notifications_generic_webhook_url": ("notifications", "generic_webhook_url"),
+    "global_filters_extensions": ("global_filters", "extensions"),
+    "global_filters_allow_archives": ("global_filters", "allow_archives"),
+    "global_filters_archive_exts": ("global_filters", "archive_exts"),
+    "global_filters_min_size": ("global_filters", "min_size"),
+    "global_filters_max_size": ("global_filters", "max_size"),
 }
 
 
@@ -132,14 +169,50 @@ def _load_from_env() -> dict | None:
         # Remove prefix and convert to lowercase
         key_path = key[len(prefix):].lower()
 
-        # Split into path components
-        parts = key_path.split("_")
-
         # Parse the value based on field type
         parsed_value = _parse_value(key_path, value)
 
-        # Handle nested structure
-        _set_nested(data, parts, parsed_value)
+        # Check if it's a flat top-level field
+        if key_path in FLAT_FIELDS:
+            data[key_path] = parsed_value
+            continue
+
+        # Check if it's a known nested mapping
+        if key_path in NESTED_MAPPINGS:
+            parent, child = NESTED_MAPPINGS[key_path]
+            if parent not in data:
+                data[parent] = {}
+            data[parent][child] = parsed_value
+            continue
+
+        # Handle sources array: sources_0_url, sources_0_filters_extensions, etc.
+        if key_path.startswith("sources_"):
+            parts = key_path.split("_")
+            # sources_0_url -> ['sources', '0', 'url']
+            # sources_0_filters_extensions -> ['sources', '0', 'filters', 'extensions']
+            if len(parts) >= 3 and parts[1].isdigit():
+                if "sources" not in data:
+                    data["sources"] = []
+
+                idx = int(parts[1])
+                while len(data["sources"]) <= idx:
+                    data["sources"].append({})
+
+                # Remaining parts after sources_N_
+                remaining = "_".join(parts[2:])
+
+                # Handle nested filters
+                if remaining.startswith("filters_"):
+                    filter_field = remaining[8:]  # Remove "filters_"
+                    if "filters" not in data["sources"][idx]:
+                        data["sources"][idx]["filters"] = {}
+                    data["sources"][idx]["filters"][filter_field] = parsed_value
+                else:
+                    data["sources"][idx][remaining] = parsed_value
+                continue
+
+        # Fallback: treat as simple key
+        data[key_path] = parsed_value
 
     return data
 
