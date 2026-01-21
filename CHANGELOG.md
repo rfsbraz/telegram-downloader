@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/rfsbraz/telegram-downloader/compare/v1.0.5...v1.1.0) (2026-01-21)
+
+
+### Features
+
+* Add dynamic variable loading ([f19c4c7](https://github.com/rfsbraz/telegram-downloader/commit/f19c4c7da8df0e4f5c2b5c9375432f217abf6490))
+
 ## [1.0.5](https://github.com/rfsbraz/telegram-downloader/compare/v1.0.4...v1.0.5) (2026-01-21)
 
 
