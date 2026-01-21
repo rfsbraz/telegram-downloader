@@ -34,6 +34,5 @@ Homepage = "https://github.com/rfsbraz/telegram-downloader"
 Documentation = "https://rfsbraz.github.io/telegram-downloader/"
 Issues = "https://github.com/rfsbraz/telegram-downloader/issues"
 
-[tool.setuptools]
-packages = { find_namespace = { where = ["."], include = ["src*"] } }
-```
+[tool.setuptools.packages.find]
+where = ["src"]
