@@ -6,10 +6,11 @@ FROM python:3.11-slim AS builder
 
 WORKDIR /build
 
-# Install build dependencies (needed for cryptography used by Pyrogram)
+# Install build dependencies (needed for cryptography and tgcrypto)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         gcc \
+        libc-dev \
         libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
