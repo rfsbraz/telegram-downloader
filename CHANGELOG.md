@@ -1,3 +1,10 @@
+## [1.1.2](https://github.com/rfsbraz/telegram-downloader/compare/v1.1.1...v1.1.2) (2026-01-22)
+
+
+### Bug Fixes
+
+* add missing dependency ([4542021](https://github.com/rfsbraz/telegram-downloader/commit/454202198134f12a4e8561bde262b69cad10035b))
+
 ## [1.1.1](https://github.com/rfsbraz/telegram-downloader/compare/v1.1.0...v1.1.1) (2026-01-21)
 
 
