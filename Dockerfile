@@ -2,7 +2,7 @@
 # Optimized for size and security with separate build and runtime stages
 
 # Build stage - includes build tools and compilers
-FROM python:3.11-slim AS builder
+FROM python:3.14-slim AS builder
 
 WORKDIR /build
 
@@ -19,7 +19,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --user -r requirements.txt
 
 # Runtime stage - minimal dependencies only
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 WORKDIR /app
 
