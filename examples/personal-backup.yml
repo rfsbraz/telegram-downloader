@@ -6,7 +6,7 @@ version: '3.8'
 
 services:
   telegram-downloader:
-    image: yourusername/telegram-downloader:latest
+    image: rfsbraz/telegram-downloader:latest
     container_name: telegram-personal-backup
     restart: unless-stopped
 

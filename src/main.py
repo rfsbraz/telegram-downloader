@@ -329,8 +329,9 @@ async def main():
     if cfg.daemon.log_level:
         log.setLevel(getattr(logging, cfg.daemon.log_level.upper()))
 
-    # Initialize state store
-    state_store = CursorStore("/app/state.db")
+    # Initialize state store (in sessions dir so it persists via volume mount)
+    state_db_path = cfg.session_dir / "state.db"
+    state_store = CursorStore(str(state_db_path))
     if Path("/app/state.yaml").exists():
         log.info("Migrating state from YAML to SQLite...")
         state_store.migrate_from_yaml("/app/state.yaml")

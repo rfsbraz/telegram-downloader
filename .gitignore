@@ -31,3 +31,10 @@ config.yaml
 # OS
 .DS_Store
 Thumbs.db
+
+# Build outputs
+site/
+
+# Downloads
+downloads/
+docker-compose.yml
