@@ -67,6 +67,10 @@ def create_client(config: Config) -> Client:
         "sleep_threshold": 60,  # Auto-retry FloodWait errors ≤ 60 seconds (Pyrogram handles sleep/retry)
         "no_updates": True,  # Disable incoming update handlers (we only iterate history, don't need real-time updates)
         "max_concurrent_transmissions": 1,  # Conservative networking for long-running daemon (prevents connection issues)
+
+        # Test mode - connects to Telegram's test servers (DC2: 149.154.167.40:443)
+        # Uses separate session file, useful for debugging auth issues
+        "test_mode": config.test_mode,
     }
 
     # Add phone number if provided (optional for session reuse)

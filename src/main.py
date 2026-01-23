@@ -64,9 +64,10 @@ def setup_logging(log_file: str, verbosity: str) -> logging.Logger:
 
     logging.basicConfig(level=level, handlers=handlers, force=True)
 
-    # Quiet noisy libraries
+    # Quiet noisy libraries (unless verbose mode for debugging)
+    lib_level = logging.DEBUG if level == logging.DEBUG else logging.WARNING
     for name, lvl in [
-        ("pyrogram", logging.WARNING),
+        ("pyrogram", lib_level),
         ("httpx", logging.WARNING),
         ("urllib3", logging.WARNING),
         ("asyncio", logging.WARNING),
@@ -190,8 +191,8 @@ async def startup_validation(cfg, log, client):
 
     Validates:
     - Telegram authentication (client.get_me())
+    - Peer cache population (get_dialogs to enable private chat ID resolution)
     - Source accessibility (parse_sources + validate_source_access)
-    - State store initialization
 
     Returns:
         sources_with_filters: List of (source, filter_config) tuples for run_check
@@ -213,6 +214,14 @@ async def startup_validation(cfg, log, client):
         log.info(f"Authenticated as: {me.first_name} {me.last_name or ''}")
     except Exception as e:
         raise RuntimeError(f"Telegram authentication failed: {e}")
+
+    # Fetch dialogs to populate peer cache (required for private chat IDs)
+    # Without this, numeric chat IDs from t.me/c/ links fail with PEER_ID_INVALID
+    log.info("Loading chat list to populate peer cache...")
+    dialog_count = 0
+    async for _ in client.get_dialogs():
+        dialog_count += 1
+    log.debug(f"Loaded {dialog_count} dialogs into peer cache")
 
     # Parse and validate sources (BLOCKER 3 FIX: parse once, return result)
     log.info("Validating configured sources...")
@@ -265,26 +274,27 @@ async def run_check(cfg, log, state_store, client, sources_with_filters):
         log.info("=" * 60)
 
         # Collect candidate messages (newest first from source)
+        # Stop early once we have enough to satisfy download limit
+        max_downloads = cfg.max_downloads_per_run or 0
         candidates = []
         async for msg in source.iterate_new_media(last_seen_id):
             if await composite_filter.matches(msg):
                 candidates.append(msg)
+                # Stop scanning once we have enough (0 = unlimited)
+                if max_downloads and len(candidates) >= max_downloads:
+                    log.debug(f"Reached download limit ({max_downloads}), stopping scan")
+                    break
 
         if not candidates:
             log.info("No new matching documents.")
             continue
 
-        # Sort oldest first for sequential processing
+        # Sort oldest first for sequential processing (ensures cursor advances correctly)
         candidates.sort(key=lambda m: m.id)
 
-        # Apply per-source download limit
-        max_downloads = cfg.max_downloads_per_run or len(candidates)
-        candidates_to_process = candidates[:max_downloads]
-
         log.info(
-            f"Candidates: {len(candidates)} "
-            f"(oldest={candidates[0].id}, newest={candidates[-1].id}), "
-            f"processing {len(candidates_to_process)}"
+            f"Found {len(candidates)} candidates "
+            f"(oldest={candidates[0].id}, newest={candidates[-1].id})"
         )
 
         # Look up source_config for this source with defensive check
@@ -295,7 +305,7 @@ async def run_check(cfg, log, state_store, client, sources_with_filters):
 
         # Download batch concurrently
         downloaded = await download_batch(
-            candidates_to_process,
+            candidates,
             semaphore,
             client,
             Path(cfg.download_dir),
@@ -307,10 +317,7 @@ async def run_check(cfg, log, state_store, client, sources_with_filters):
             source_config
         )
 
-        log.info(
-            f"Downloaded {downloaded} files "
-            f"(processed {len(candidates_to_process)} of {len(candidates)} candidates)"
-        )
+        log.info(f"Downloaded {downloaded}/{len(candidates)} files")
 
 
 async def main():
@@ -328,11 +335,32 @@ async def main():
         log.info("Migrating state from YAML to SQLite...")
         state_store.migrate_from_yaml("/app/state.yaml")
 
+    # Log credentials for debugging (mask sensitive parts)
+    log.debug("=" * 50)
+    log.debug("AUTHENTICATION DEBUG INFO")
+    log.debug("=" * 50)
+    log.debug(f"API ID: {cfg.api_id}")
+    log.debug(f"API Hash: {cfg.api_hash[:8]}...{cfg.api_hash[-4:]}" if cfg.api_hash else "API Hash: None")
+    log.debug(f"Phone Number: {cfg.phone_number}")
+    log.debug(f"Session Dir: {cfg.session_dir}")
+    log.debug(f"Test Mode: {cfg.test_mode}")
+    log.debug("=" * 50)
+
+    # Warn if test mode is enabled
+    if cfg.test_mode:
+        log.warning("=" * 60)
+        log.warning("TEST MODE ENABLED - Connecting to Telegram test servers")
+        log.warning("DC2: 149.154.167.40:443")
+        log.warning("Note: Test servers require test phone numbers (99966XXXXXX)")
+        log.warning("=" * 60)
+
     # Create Pyrogram client
     client = create_client(cfg)
 
     try:
+        log.debug("Attempting to connect and authenticate with Telegram...")
         async with client:
+            log.debug("Successfully connected to Telegram!")
             # Startup validation (BLOCKER 3 FIX: parse sources once, store result)
             sources_with_filters = await startup_validation(cfg, log, client)
 

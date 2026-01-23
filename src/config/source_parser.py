@@ -120,9 +120,9 @@ def build_filters(filter_config: GlobalFilters) -> CompositeFilter:
     if filter_config.extensions:
         filters.append(
             ExtensionFilter(
-                extensions=filter_config.extensions,
+                ebook_exts=filter_config.extensions,
                 allow_archives=filter_config.allow_archives,
-                archive_extensions=filter_config.archive_exts,
+                archive_exts=filter_config.archive_exts,
             )
         )
 

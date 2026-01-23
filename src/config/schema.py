@@ -98,6 +98,10 @@ class Config(BaseModel):
     api_hash: str = Field(..., min_length=1)
     phone_number: Optional[str] = None
 
+    # Test mode - connects to Telegram's test servers (DC2: 149.154.167.40:443)
+    # Use for debugging authentication issues without affecting production sessions
+    test_mode: bool = Field(default=False)
+
     # Paths
     download_dir: Path = Field(default=Path("/downloads"))
     session_dir: Path = Field(default=Path("/app/.sessions"))

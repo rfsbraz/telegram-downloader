@@ -101,10 +101,8 @@ class ForumTopicSource(BaseSource):
         Iterate media messages from this forum topic.
 
         Strategy:
-        1. Try search_messages(filter=DOCUMENT) for fast server-side search
-        2. Fall back to get_chat_history if search fails
-        3. For each message with media, verify it belongs to this topic
-        4. Yield messages with ID > last_seen_id
+        1. Iterate chat history filtering by topic via reply_to fields
+        2. Yield messages with media and ID > last_seen_id
 
         Messages are yielded newest-first (descending ID).
 
@@ -124,66 +122,21 @@ class ForumTopicSource(BaseSource):
             if msg.id <= last_seen_id:
                 break
 
-            # Verify message has media
-            media_obj = (
-                msg.document or
-                msg.audio or
-                msg.video or
-                msg.animation or
-                msg.voice or
-                msg.video_note
-            )
-            if not media_obj:
-                continue
-
-            # Verify message belongs to this specific topic
-            try:
-                in_topic = await export_link_contains_topic(
-                    self.client,
-                    self.chat_id,
-                    msg.id,
-                    self.topic_id
-                )
-            except Exception as e:
-                # If we can't verify topic membership, skip to be safe
-                self.log.debug(
-                    f"Failed to verify topic for msg {msg.id}: {e}"
-                )
-                continue
-
-            if not in_topic:
-                continue
-
+            # Messages from _iter_docs_newest_first are already:
+            # 1. Filtered to this topic
+            # 2. Have media attachments
             yield msg
 
     async def _iter_docs_newest_first(self) -> AsyncIterator[Message]:
         """
-        Iterate documents from chat, newest first.
+        Iterate documents from this topic, newest first.
 
-        Tries server-side document search first (fast), falls back
-        to full history scan if search fails.
+        Uses reply_to_message_id to filter by topic (forum topics use
+        the topic ID as the thread root message ID).
 
         Yields:
-            Message objects with potential media attachments
+            Message objects with potential media attachments from this topic
         """
-        # Try server-side document search (fast)
-        try:
-            async for m in self.client.search_messages(
-                self.chat_id,
-                query="",
-                limit=0,
-                filter=MessagesFilter.DOCUMENT
-            ):
-                yield m
-            return
-        except Exception as e:
-            self.log.warning(
-                f"search_messages(DOCUMENT) failed: {e}; "
-                f"falling back to history scan"
-            )
-
-        # Fallback: full chat history scan
-        # Only yield messages that look like they have file-ish media
         offset_id = 0
         batch_size = 200
 
@@ -201,6 +154,22 @@ class ForumTopicSource(BaseSource):
 
             for m in buf:
                 offset_id = m.id
+
+                # Check if message belongs to this topic
+                # Forum messages have reply_to_top_message_id or reply_to_message_id
+                # pointing to the topic root
+                topic_match = False
+                if hasattr(m, 'reply_to_top_message_id') and m.reply_to_top_message_id == self.topic_id:
+                    topic_match = True
+                elif hasattr(m, 'reply_to_message_id') and m.reply_to_message_id == self.topic_id:
+                    topic_match = True
+                elif m.id == self.topic_id:
+                    # The topic root message itself
+                    topic_match = True
+
+                if not topic_match:
+                    continue
+
                 # Yield messages with media attachments
                 if (
                     m.document or
@@ -236,18 +205,31 @@ class ForumTopicSource(BaseSource):
         """
         Return human-readable source name.
 
-        Format: "{chat_title} - Topic {topic_id}"
+        Format: "{chat_title} - {topic_title}"
 
         Returns:
             Display name for logging
 
         Example:
             >>> await source.get_display_name()
-            'Book Club - Topic 5'
+            'Book Club - General Discussion'
         """
+        chat_title = str(self.chat_id)
+        topic_title = f"Topic {self.topic_id}"
+
         try:
             chat = await self.client.get_chat(self.chat_id)
-            title = getattr(chat, "title", str(self.chat_id))
-            return f"{title} - Topic {self.topic_id}"
+            chat_title = getattr(chat, "title", chat_title)
         except Exception:
-            return f"Chat {self.chat_id} - Topic {self.topic_id}"
+            pass
+
+        # Try to get topic name from forum topics list
+        try:
+            async for topic in self.client.get_forum_topics(self.chat_id):
+                if topic.id == self.topic_id:
+                    topic_title = topic.title
+                    break
+        except Exception:
+            pass
+
+        return f"{chat_title} - {topic_title}"

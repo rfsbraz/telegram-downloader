@@ -7,6 +7,8 @@ Supports two configuration methods:
 
 Environment variable format:
 - TDL_API_ID=12345
+- TDL_API_HASH=abc123
+- TDL_TEST_MODE=true (connects to Telegram test servers)
 - TDL_SOURCES_0_URL=https://t.me/channel
 - TDL_SOURCES_0_FILTERS_EXTENSIONS=.pdf,.epub,.mobi
 - TDL_DAEMON_ENABLED=true
@@ -40,6 +42,7 @@ LIST_FIELDS = {
 BOOL_FIELDS = {
     "enabled",
     "allow_archives",
+    "test_mode",
 }
 
 # Full field names that should be parsed as integers
@@ -64,6 +67,7 @@ FLAT_FIELDS = {
     "api_id",
     "api_hash",
     "phone_number",
+    "test_mode",
     "download_dir",
     "session_dir",
     "log_file",

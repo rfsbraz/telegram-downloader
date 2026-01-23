@@ -3,6 +3,7 @@ import asyncio
 import signal
 import logging
 import time
+from datetime import datetime, timedelta
 from typing import Callable, Awaitable, Optional
 from pathlib import Path
 
@@ -248,6 +249,10 @@ class DaemonService:
 
         # Periodic execution loop
         while not self.shutdown_event.is_set():
+            # Log next scheduled check time
+            next_check = datetime.now() + timedelta(seconds=self.check_interval)
+            self.log.info(f"Next check at {next_check.strftime('%Y-%m-%d %H:%M:%S')}")
+
             try:
                 # Wait for next interval OR shutdown event (whichever comes first)
                 await asyncio.wait_for(
