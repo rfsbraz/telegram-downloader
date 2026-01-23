@@ -159,7 +159,7 @@ Solutions for common errors and issues.
     ```yaml
     volumes:
       - downloads:/downloads
-      - sessions:/.sessions
+      - sessions:/app/.sessions
 
     volumes:
       downloads:

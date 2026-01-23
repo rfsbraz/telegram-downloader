@@ -63,7 +63,7 @@ services:
 
     volumes:
       - ./news_media:/downloads
-      - ./sessions:/.sessions
+      - ./sessions:/app/.sessions
 
     healthcheck:
       test: ["CMD", "python3", "/app/healthcheck.py"]

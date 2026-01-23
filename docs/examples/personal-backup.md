@@ -55,7 +55,7 @@ services:
 
     volumes:
       - ./personal_backup:/downloads
-      - ./sessions:/.sessions
+      - ./sessions:/app/.sessions
 
     healthcheck:
       test: ["CMD", "python3", "/app/healthcheck.py"]
