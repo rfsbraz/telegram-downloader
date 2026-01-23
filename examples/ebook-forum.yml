@@ -7,7 +7,7 @@ version: '3.8'
 
 services:
   telegram-downloader:
-    image: yourusername/telegram-downloader:latest
+    image: rfsbraz/telegram-downloader:latest
     container_name: telegram-ebook-downloader
     restart: unless-stopped
 
