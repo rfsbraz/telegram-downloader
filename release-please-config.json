@@ -8,7 +8,19 @@
       "include-component-in-tag": false,
       "include-v-in-tag": true,
       "changelog-path": "CHANGELOG.md",
-      "extra-files": []
+      "extra-files": [],
+      "changelog-sections": [
+        {"type": "feat", "section": "Features"},
+        {"type": "fix", "section": "Bug Fixes"},
+        {"type": "perf", "section": "Performance Improvements"},
+        {"type": "refactor", "section": "Code Refactoring"},
+        {"type": "chore", "section": "Miscellaneous"},
+        {"type": "docs", "hidden": true},
+        {"type": "style", "hidden": true},
+        {"type": "test", "hidden": true},
+        {"type": "ci", "hidden": true},
+        {"type": "build", "hidden": true}
+      ]
     }
   }
 }
