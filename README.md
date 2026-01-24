@@ -38,7 +38,9 @@ Telegram is great for sharing files, but manually downloading from multiple sour
 
 - Docker and Docker Compose
 - Telegram API credentials from [my.telegram.org/apps](https://my.telegram.org/apps)
-
+- Telegram account with access to desired channels/groups
+- ![The channel url](image.png)
+  
 ### Setup
 
 ```bash
