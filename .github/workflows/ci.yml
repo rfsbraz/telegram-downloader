@@ -87,6 +87,7 @@ jobs:
       - name: Run smoke test (verify core modules import)
         run: |
           docker run --rm telegram-downloader:test python -c "
+          import asyncio; asyncio.set_event_loop(asyncio.new_event_loop())
           from src.config import load_config, ConfigError
           from src.config.schema import Config, SourceConfig
           from src.state.cursor import CursorStore
