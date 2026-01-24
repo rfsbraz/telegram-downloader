@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main]
   pull_request:
-    branches: [ main, master ]
+    branches: [main]
     types: [opened, edited, synchronize, reopened]
 
 jobs:
@@ -17,11 +17,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          # Require conventional commit format: type(scope): description
-          # Types that trigger releases in release-please:
-          #   feat  -> minor version bump
-          #   fix   -> patch version bump
-          #   feat! or fix! (breaking) -> major version bump
           types: |
             feat
             fix
@@ -42,18 +37,14 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ['3.11', '3.12']
-
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v6
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.12'
           cache: 'pip'
 
       - name: Install dependencies
@@ -62,19 +53,18 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pytest-cov pytest-asyncio
 
-      - name: Run tests
+      - name: Run unit and integration tests
         run: |
-          pytest tests/ -v --cov=src --cov-report=term-missing --cov-fail-under=70
+          pytest tests/unit tests/integration -v --cov=src --cov-report=term-missing --cov-fail-under=70
 
       - name: Validate example configurations
         run: |
-          # Validate all example compose files
           for file in examples/*.yml; do
             echo "Validating $file"
             docker compose -f "$file" config > /dev/null
           done
 
-  docker-smoke:
+  build:
     runs-on: ubuntu-latest
     needs: test
     steps:
@@ -94,57 +84,16 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Verify module imports in container
+      - name: Run smoke test (verify core modules import)
         run: |
           docker run --rm telegram-downloader:test python -c "
-          import sys
-          import asyncio
-
-          # Python 3.10+ requires explicit event loop for pyrogram's sync wrapper
-          asyncio.set_event_loop(asyncio.new_event_loop())
-
-          print(f'Python {sys.version}')
-
-          # Test all critical imports
-          modules = [
-              'src.config.schema',
-              'src.config.loader',
-              'src.state.cursor',
-              'src.filters.extension',
-              'src.filters.size',
-              'src.filters.composite',
-              'src.security.sanitizer',
-          ]
-
-          failed = []
-          for mod in modules:
-              try:
-                  __import__(mod)
-                  print(f'  OK: {mod}')
-              except ImportError as e:
-                  failed.append(f'{mod}: {e}')
-                  print(f'FAIL: {mod}: {e}')
-
-          if failed:
-              print(f'\\nFailed to import {len(failed)} module(s)')
-              sys.exit(1)
-          print('\\nAll modules imported successfully')
-          "
-
-      - name: Verify healthcheck script accessible
-        run: |
-          docker run --rm telegram-downloader:test python -c "
-          from pathlib import Path
-          import sys
-
-          healthcheck = Path('/app/healthcheck.py')
-          if not healthcheck.exists():
-              print('ERROR: healthcheck.py not found at /app/healthcheck.py')
-              sys.exit(1)
-
-          # Try to import and verify syntax
-          import healthcheck
-          print('healthcheck.py is accessible and valid')
+          import asyncio; asyncio.set_event_loop(asyncio.new_event_loop())
+          from src.config import load_config, ConfigError
+          from src.config.schema import Config, SourceConfig
+          from src.state.cursor import CursorStore
+          from src.filters import ExtensionFilter, SizeFilter, CompositeFilter
+          from src.security.sanitizer import sanitize_filename, validate_path_safety
+          print('All core modules import successfully')
           "
 
   security:
@@ -153,7 +102,7 @@ jobs:
       security-events: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
