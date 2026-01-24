@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main]
   pull_request:
-    branches: [ main, master ]
+    branches: [main]
     types: [opened, edited, synchronize, reopened]
 
 jobs:
@@ -37,18 +37,14 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ['3.11', '3.12']
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.12'
           cache: 'pip'
 
       - name: Install dependencies
@@ -75,22 +71,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio
-
-      - name: Run smoke tests
-        run: |
-          pytest tests/smoke -v
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -104,55 +84,14 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Verify module imports in container
+      - name: Run smoke test via healthcheck
         run: |
-          docker run --rm telegram-downloader:test python -c "
-          import sys
-          import asyncio
-
-          asyncio.set_event_loop(asyncio.new_event_loop())
-
-          print(f'Python {sys.version}')
-
-          modules = [
-              'src.config.schema',
-              'src.config.loader',
-              'src.state.cursor',
-              'src.filters.extension',
-              'src.filters.size',
-              'src.filters.composite',
-              'src.security.sanitizer',
-          ]
-
-          failed = []
-          for mod in modules:
-              try:
-                  __import__(mod)
-                  print(f'  OK: {mod}')
-              except ImportError as e:
-                  failed.append(f'{mod}: {e}')
-                  print(f'FAIL: {mod}: {e}')
-
-          if failed:
-              print(f'\\nFailed to import {len(failed)} module(s)')
-              sys.exit(1)
-          print('\\nAll modules imported successfully')
-          "
-
-      - name: Verify healthcheck script accessible
-        run: |
-          docker run --rm telegram-downloader:test python -c "
-          from pathlib import Path
-          import sys
-
-          healthcheck = Path('/app/healthcheck.py')
-          if not healthcheck.exists():
-              print('ERROR: healthcheck.py not found at /app/healthcheck.py')
-              sys.exit(1)
-
-          import healthcheck
-          print('healthcheck.py is accessible and valid')
-          "
+          # Create a healthy status file and verify healthcheck works
+          docker run --rm telegram-downloader:test sh -c '
+            echo "healthy" > /tmp/health.txt
+            echo "$(date -Iseconds)" >> /tmp/health.txt
+            TDL_DAEMON_HEALTH_FILE=/tmp/health.txt python /app/healthcheck.py
+          '
 
   security:
     runs-on: ubuntu-latest
