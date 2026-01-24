@@ -84,14 +84,16 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Run smoke test via healthcheck
+      - name: Run smoke test (verify core modules import)
         run: |
-          # Create a healthy status file and verify healthcheck works
-          docker run --rm telegram-downloader:test sh -c '
-            echo "healthy" > /tmp/health.txt
-            echo "$(date -Iseconds)" >> /tmp/health.txt
-            TDL_DAEMON_HEALTH_FILE=/tmp/health.txt python /app/healthcheck.py
-          '
+          docker run --rm telegram-downloader:test python -c "
+          from src.config import load_config, ConfigError
+          from src.config.schema import Config, SourceConfig
+          from src.state.cursor import CursorStore
+          from src.filters import ExtensionFilter, SizeFilter, CompositeFilter
+          from src.security.sanitizer import sanitize_filename, validate_path_safety
+          print('All core modules import successfully')
+          "
 
   security:
     runs-on: ubuntu-latest
