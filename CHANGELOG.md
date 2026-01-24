@@ -5,6 +5,27 @@
 
 * add missing dependency ([4542021](https://github.com/rfsbraz/telegram-downloader/commit/454202198134f12a4e8561bde262b69cad10035b))
 
+## 1.0.0 (2026-01-24)
+
+
+### Features
+
+* Add dynamic variable loading ([f19c4c7](https://github.com/rfsbraz/telegram-downloader/commit/f19c4c7da8df0e4f5c2b5c9375432f217abf6490))
+* CI/CD fixes and flow improvement ([b81c0ea](https://github.com/rfsbraz/telegram-downloader/commit/b81c0ead6d5c0a4a34415791f35ccb906bc009ca))
+* pre-launch cleanup and improvements ([1411914](https://github.com/rfsbraz/telegram-downloader/commit/141191483912b8cf856d605dab51d0ede3627184))
+
+
+### Bug Fixes
+
+* add missing dependency ([4542021](https://github.com/rfsbraz/telegram-downloader/commit/454202198134f12a4e8561bde262b69cad10035b))
+* Broken links ([3ca305d](https://github.com/rfsbraz/telegram-downloader/commit/3ca305d7d2b5f8eab572b6f783d13e56787739ce))
+* ci ([2668b4e](https://github.com/rfsbraz/telegram-downloader/commit/2668b4e883261035d3c42084fa3a65a7334adfc6))
+* dockerfile build issue ([2db390f](https://github.com/rfsbraz/telegram-downloader/commit/2db390f213afecd669ea02b57993b1633e13e8bc))
+* incorrect field mapping ([f168e72](https://github.com/rfsbraz/telegram-downloader/commit/f168e725419baafe1fd3f77a8360d0ba8cb96d2d))
+* remove pyproject ([662652b](https://github.com/rfsbraz/telegram-downloader/commit/662652b7a351d31b4ebcb8553e7cc2a6f5857ca9))
+* remove stray markdown fence from pyproject.toml ([14f0c2b](https://github.com/rfsbraz/telegram-downloader/commit/14f0c2bfbc1596ec3e555ff5fcbbdfac967f3863))
+* remove uneeded line ([b091c25](https://github.com/rfsbraz/telegram-downloader/commit/b091c2522741844fb7c214cc31eb407286c4eb3e))
+
 ## [1.1.1](https://github.com/rfsbraz/telegram-downloader/compare/v1.1.0...v1.1.1) (2026-01-21)
 
 
