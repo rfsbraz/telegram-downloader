@@ -17,6 +17,7 @@ __pycache__/
 venv/
 .pytest_cache/
 .mypy_cache/
+.coverage
 
 # Config (user-specific)
 config.yaml
@@ -24,6 +25,7 @@ config.yaml
 # IDE
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 *~
