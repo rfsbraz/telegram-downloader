@@ -98,6 +98,11 @@ jobs:
         run: |
           docker run --rm telegram-downloader:test python -c "
           import sys
+          import asyncio
+
+          # Python 3.10+ requires explicit event loop for pyrogram's sync wrapper
+          asyncio.set_event_loop(asyncio.new_event_loop())
+
           print(f'Python {sys.version}')
 
           # Test all critical imports
