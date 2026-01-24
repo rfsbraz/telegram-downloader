@@ -65,6 +65,18 @@ Each example includes:
 
     [:octicons-arrow-right-24: View Example](personal-backup.md)
 
+-   :material-file-document-multiple:{ .lg .middle } **[Paperless-ngx Ingestion](paperless-ingestion.md)**
+
+    ---
+
+    Ingest documents into Paperless-ngx via Telegram
+
+    **Perfect for:** Mobile scanning, receipt capture, document management
+
+    **Features:** Direct consume folder integration, quick ingestion, OCR-ready
+
+    [:octicons-arrow-right-24: View Example](paperless-ingestion.md)
+
 </div>
 
 ## Quick Start with Examples
@@ -129,6 +141,7 @@ Each example can be customized:
 | [YouTube Archiver](youtube-archiver.md) | Content archivists | MP4, MKV, WEBM | Low | 5 min |
 | [News Aggregator](news-aggregator.md) | Media monitoring | Images, Videos | Medium | 10 min |
 | [Personal Backup](personal-backup.md) | Personal archiving | All media types | Low | 5 min |
+| [Paperless-ngx](paperless-ingestion.md) | Document management | PDF, Images | Low | 5 min |
 
 ## Need Help?
 

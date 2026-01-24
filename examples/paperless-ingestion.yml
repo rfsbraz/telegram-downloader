@@ -1,0 +1,64 @@
+# Paperless-ngx Document Ingestion
+#
+# Send documents to your Telegram Saved Messages, automatically ingest into Paperless-ngx.
+#
+# Usage:
+#   1. Copy this file to your project directory
+#   2. Update /path/to/paperless/consume to your Paperless consume folder
+#   3. Replace YOUR_* placeholders with actual values
+#   4. Run: docker compose -f paperless-ingestion.yml up -d
+#   5. Authenticate on first run: docker compose logs -f
+#
+# How it works:
+#   - Send document to Telegram Saved Messages
+#   - telegram-downloader downloads to Paperless consume folder
+#   - Paperless-ngx automatically OCRs and indexes
+
+services:
+  telegram-downloader:
+    image: rfsbraz/telegram-downloader:latest
+    container_name: telegram-paperless-ingestion
+    restart: unless-stopped
+
+    environment:
+      # ===================
+      # Telegram Credentials
+      # ===================
+      # Get from https://my.telegram.org/apps
+      - TDL_API_ID=YOUR_API_ID
+      - TDL_API_HASH=YOUR_API_HASH
+      - TDL_PHONE_NUMBER=YOUR_PHONE_NUMBER
+
+      # ===================
+      # Daemon Mode
+      # ===================
+      - TDL_DAEMON_ENABLED=true
+      - TDL_DAEMON_CHECK_INTERVAL=60  # Check every minute for quick ingestion
+
+      # ===================
+      # Document Source
+      # ===================
+      # Using Saved Messages as document inbox
+      - TDL_SOURCES_0_URL=https://t.me/me
+      - TDL_SOURCES_0_NAME=inbox
+
+      # Document formats (all formats Paperless-ngx supports)
+      - TDL_SOURCES_0_FILTERS_EXTENSIONS=.pdf,.png,.jpg,.jpeg,.tiff,.webp
+
+      # Optional: Skip tiny files (likely not documents)
+      - TDL_SOURCES_0_FILTERS_MIN_SIZE=50KB
+
+    volumes:
+      # Mount directly to Paperless-ngx consume folder
+      # UPDATE THIS PATH to your actual Paperless consume folder
+      - /path/to/paperless/consume:/downloads
+
+      # Session persistence
+      - ./sessions:/app/.sessions
+
+    healthcheck:
+      test: ["CMD", "python3", "/app/healthcheck.py"]
+      interval: 2m
+      timeout: 10s
+      start_period: 1m
+      retries: 3
