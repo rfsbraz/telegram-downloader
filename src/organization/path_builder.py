@@ -17,13 +17,16 @@ async def build_destination_path(
     source: BaseSource,
     filename: str,
     source_config: SourceConfig,
+    flat_structure: bool = False,
 ) -> Path:
     """
-    Build destination path with per-source folder structure.
+    Build destination path with optional per-source folder structure.
 
-    Creates folder structure: {base_dir}/{source_folder}/{filename}
+    Creates folder structure:
+    - flat_structure=False: {base_dir}/{source_folder}/{filename}
+    - flat_structure=True:  {base_dir}/{filename}
 
-    Folder name priority:
+    Folder name priority (when flat_structure=False):
     1. source_config.name (user-provided display name)
     2. source.get_display_name() (Telegram chat/topic name)
     3. Fallback to cursor key if sanitization results in empty string
@@ -38,6 +41,7 @@ async def build_destination_path(
         source: Source instance for display name and cursor key
         filename: Original filename from Telegram message
         source_config: Source configuration with optional name override
+        flat_structure: If True, store files directly in base_dir without subfolders
 
     Returns:
         Validated absolute path ready for download
@@ -54,6 +58,16 @@ async def build_destination_path(
         ... )
         >>> path
         Path('/downloads/Book_Club/book.epub')
+
+        >>> path = await build_destination_path(
+        ...     Path("/downloads"),
+        ...     forum_topic_source,
+        ...     "book.epub",
+        ...     SourceConfig(name="Book Club"),
+        ...     flat_structure=True
+        ... )
+        >>> path
+        Path('/downloads/book.epub')
     """
     # Get folder name: use config name, fallback to display name
     if source_config.name:
@@ -75,8 +89,11 @@ async def build_destination_path(
     # Sanitize filename
     safe_filename = sanitize_filename(filename)
 
-    # Build path: {base_dir}/{safe_folder}/{safe_filename}
-    dest_path = base_dir / safe_folder / safe_filename
+    # Build path based on structure preference
+    if flat_structure:
+        dest_path = base_dir / safe_filename
+    else:
+        dest_path = base_dir / safe_folder / safe_filename
 
     # Validate path safety (defense in depth)
     validated_path = validate_path_safety(base_dir, dest_path)
