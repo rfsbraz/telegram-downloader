@@ -5,6 +5,18 @@
 
 * add missing dependency ([4542021](https://github.com/rfsbraz/telegram-downloader/commit/454202198134f12a4e8561bde262b69cad10035b))
 
+## [1.1.0](https://github.com/rfsbraz/telegram-downloader/compare/v1.0.0...v1.1.0) (2026-01-26)
+
+
+### Features
+
+* add flat storage option to skip channel subfolders ([#13](https://github.com/rfsbraz/telegram-downloader/issues/13)) ([707c356](https://github.com/rfsbraz/telegram-downloader/commit/707c356c6eecba352b6212d2d2c1384d4d49f4c2))
+
+
+### Bug Fixes
+
+* **ci:** docs workflow triggers on main branch ([#9](https://github.com/rfsbraz/telegram-downloader/issues/9)) ([1e2c683](https://github.com/rfsbraz/telegram-downloader/commit/1e2c68340b85e768ee1ed2c5b41139167d9ac2d9))
+
 ## 1.0.0 (2026-01-24)
 
 
