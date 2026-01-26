@@ -107,6 +107,9 @@ class Config(BaseModel):
     session_dir: Path = Field(default=Path("/app/.sessions"))
     log_file: Optional[Path] = None
 
+    # Storage structure
+    flat_structure: bool = Field(default=False)
+
     # Logging
     verbosity: Literal["quiet", "normal", "verbose"] = Field(default="normal")
 

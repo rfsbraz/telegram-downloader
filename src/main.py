@@ -132,7 +132,8 @@ async def download_batch(
                     download_dir,
                     source,
                     fname,
-                    source_config
+                    source_config,
+                    config.flat_structure,
                 )
             except ValueError as e:
                 log.error(f"Path validation failed for {fname}: {e}")
