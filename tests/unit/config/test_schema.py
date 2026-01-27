@@ -99,9 +99,9 @@ class TestConfig:
             Config.model_validate(minimal_config_dict)
 
     def test_max_concurrent_downloads_default(self, minimal_config_dict):
-        """Default max_concurrent_downloads should be 3."""
+        """Default max_concurrent_downloads should be 1."""
         config = Config.model_validate(minimal_config_dict)
-        assert config.max_concurrent_downloads == 3
+        assert config.max_concurrent_downloads == 1
 
     def test_max_concurrent_downloads_range(self, minimal_config_dict):
         """max_concurrent_downloads must be between 1 and 10."""
