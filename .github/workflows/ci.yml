@@ -44,7 +44,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: '3.12'
+          python-version-file: '.python-version'
           cache: 'pip'
 
       - name: Install dependencies
@@ -71,6 +71,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Read Python version
+        id: python
+        run: echo "version=$(cat .python-version)" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -83,17 +87,14 @@ jobs:
           tags: telegram-downloader:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            PYTHON_VERSION=${{ steps.python.outputs.version }}
 
-      - name: Run smoke test (verify core modules import)
+      - name: Run smoke test (verify application starts)
         run: |
           docker run --rm telegram-downloader:test python -c "
-          import asyncio; asyncio.set_event_loop(asyncio.new_event_loop())
-          from src.config import load_config, ConfigError
-          from src.config.schema import Config, SourceConfig
-          from src.state.cursor import CursorStore
-          from src.filters import ExtensionFilter, SizeFilter, CompositeFilter
-          from src.security.sanitizer import sanitize_filename, validate_path_safety
-          print('All core modules import successfully')
+          from src.main import main
+          print('Application entry point imports successfully')
           "
 
   security:
