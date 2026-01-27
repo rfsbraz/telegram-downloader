@@ -5,6 +5,13 @@
 
 * add missing dependency ([4542021](https://github.com/rfsbraz/telegram-downloader/commit/454202198134f12a4e8561bde262b69cad10035b))
 
+## [1.1.1](https://github.com/rfsbraz/telegram-downloader/compare/v1.1.0...v1.1.1) (2026-01-27)
+
+
+### Bug Fixes
+
+* handle bind-mount permissions with entrypoint ([#17](https://github.com/rfsbraz/telegram-downloader/issues/17)) ([5cf3c96](https://github.com/rfsbraz/telegram-downloader/commit/5cf3c96fe741c02ae5e8de49128d38696d1eb2d6))
+
 ## [1.1.0](https://github.com/rfsbraz/telegram-downloader/compare/v1.0.0...v1.1.0) (2026-01-26)
 
 
