@@ -116,7 +116,7 @@ class Config(BaseModel):
     # Multi-source configuration
     sources: list[SourceConfig] = Field(default_factory=list)
     global_filters: GlobalFilters = Field(default_factory=GlobalFilters)
-    max_concurrent_downloads: int = Field(default=3, ge=1, le=10)
+    max_concurrent_downloads: int = Field(default=1, ge=1, le=10)
 
     # Daemon mode configuration
     daemon: DaemonConfig = Field(default_factory=DaemonConfig)
