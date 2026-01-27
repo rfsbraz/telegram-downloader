@@ -17,16 +17,19 @@ jobs:
       version: ${{ steps.release.outputs.version }}
 
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
       - name: Run release-please
         id: release
         uses: googleapis/release-please-action@v4
         with:
-          # Use conventional commits to determine version bumps
-          # feat: -> minor, fix: -> patch, feat!: or fix!: -> major
+          token: ${{ steps.app-token.outputs.token }}
           release-type: simple
-
-          # Create release PR with accumulated changes
-          # Merging the PR creates the release and tag
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
