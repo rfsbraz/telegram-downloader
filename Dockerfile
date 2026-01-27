@@ -1,8 +1,11 @@
 # Telegram Downloader - Production Multi-Stage Build
 # Optimized for size and security with separate build and runtime stages
 
+# Python version sourced from .python-version via build arg
+ARG PYTHON_VERSION=3.12
+
 # Build stage - includes build tools and compilers
-FROM python:3.14-slim AS builder
+FROM python:${PYTHON_VERSION}-slim AS builder
 
 WORKDIR /build
 
@@ -19,7 +22,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --user -r requirements.txt
 
 # Runtime stage - minimal dependencies only
-FROM python:3.14-slim
+FROM python:${PYTHON_VERSION}-slim
 
 WORKDIR /app
 
