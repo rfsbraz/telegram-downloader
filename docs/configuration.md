@@ -71,11 +71,40 @@ Examples:
     phone_number = "+1234567890"
     ```
 
-### Download Directory
+### Paths and Storage
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `TDL_DOWNLOAD_DIR` | path | `/downloads` | Base directory for downloaded files |
+| `TDL_FLAT_STRUCTURE` | boolean | `false` | Store all files in download dir without per-channel subfolders |
+
+When `TDL_FLAT_STRUCTURE` is `false` (default), files are organized as `{download_dir}/{channel_name}/{filename}`. When `true`, all files go directly into `{download_dir}/{filename}`.
+
+### Docker Environment
+
+These are standard Docker environment variables, not prefixed with `TDL_`.
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `PUID` | integer | `1000` | User ID for file ownership ([arr-stack](https://docs.linuxserver.io/general/understanding-puid-and-pgid/) convention) |
+| `PGID` | integer | `1000` | Group ID for file ownership |
+| `TZ` | string | `UTC` | Container timezone (e.g., `Europe/Lisbon`) |
+
+=== "Environment Variables"
+
+    ```yaml
+    - PUID=1000
+    - PGID=1000
+    - TZ=Europe/Lisbon
+    - TDL_FLAT_STRUCTURE=true
+    ```
+
+=== "config.toml"
+
+    ```toml
+    flat_structure = true
+    # PUID, PGID, and TZ are Docker-only (not in config.toml)
+    ```
 
 ## Daemon Configuration
 
@@ -261,6 +290,7 @@ api_id = 12345678
 api_hash = "abcdef1234567890abcdef1234567890"
 phone_number = "+1234567890"
 download_dir = "/downloads"
+flat_structure = true
 
 [daemon]
 enabled = true

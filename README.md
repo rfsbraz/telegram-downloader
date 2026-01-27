@@ -119,6 +119,20 @@ All configuration is done via environment variables with the `TDL_` prefix.
 - TDL_NOTIFICATIONS_DETAIL_LEVEL=summary  # minimal, summary, or detailed
 ```
 
+### Docker Environment
+
+```yaml
+# User/group ID for file permissions (arr-stack compatible)
+- PUID=1000  # default: 1000
+- PGID=1000  # default: 1000
+
+# Timezone
+- TZ=Europe/Lisbon
+
+# Store all files in download_dir without per-channel subfolders
+- TDL_FLAT_STRUCTURE=true
+```
+
 See the [full configuration reference](https://rfsbraz.github.io/telegram-downloader/configuration/) for all options.
 
 ## Examples

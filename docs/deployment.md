@@ -203,7 +203,7 @@ docker stats telegram-downloader
 ### 1. Non-Root User
 
 !!! tip "Verify Non-Root Execution"
-    Container already runs as UID 1000 (non-root). Verify:
+    Container runs as non-root by default (UID 1000). Override with `PUID`/`PGID` environment variables to match your host user. Verify:
 ```bash
 docker compose exec telegram-downloader whoami
 # Should output: appuser
