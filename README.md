@@ -19,6 +19,7 @@ Telegram is great for sharing files, but manually downloading from multiple sour
 - Filters by extension, size, date, or filename pattern
 - Organizes files into folders by source
 - Skips duplicates automatically
+- Tracks downloads persistently — files aren't re-downloaded after being moved or renamed
 - Sends notifications when downloads complete
 
 ## Features
@@ -27,7 +28,7 @@ Telegram is great for sharing files, but manually downloading from multiple sour
 |---------|-------------|
 | **Multi-Source** | Channels, groups, supergroups, forum topics, private chats |
 | **Smart Filtering** | By extension, file size, date range, filename patterns |
-| **Auto-Organization** | Per-source folders, duplicate detection, conflict resolution |
+| **Auto-Organization** | Per-source folders, duplicate detection, conflict resolution, persistent download tracking |
 | **Daemon Mode** | Runs continuously with configurable check intervals |
 | **Notifications** | Discord webhooks, generic HTTP POST |
 | **Docker Native** | Multi-arch images (amd64/arm64), health checks, non-root |
@@ -131,6 +132,10 @@ All configuration is done via environment variables with the `TDL_` prefix.
 
 # Store all files in download_dir without per-channel subfolders
 - TDL_FLAT_STRUCTURE=true
+
+# Disable persistent download tracking (enabled by default)
+# When enabled, files won't be re-downloaded after being moved/renamed
+- TDL_TRACK_DOWNLOADS=true
 ```
 
 See the [full configuration reference](https://rfsbraz.github.io/telegram-downloader/configuration/) for all options.

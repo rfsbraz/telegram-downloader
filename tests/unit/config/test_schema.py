@@ -98,6 +98,17 @@ class TestConfig:
         with pytest.raises(ValidationError):
             Config.model_validate(minimal_config_dict)
 
+    def test_track_downloads_default_true(self, minimal_config_dict):
+        """track_downloads should default to True."""
+        config = Config.model_validate(minimal_config_dict)
+        assert config.track_downloads is True
+
+    def test_track_downloads_can_be_disabled(self, minimal_config_dict):
+        """track_downloads can be set to False."""
+        minimal_config_dict["track_downloads"] = False
+        config = Config.model_validate(minimal_config_dict)
+        assert config.track_downloads is False
+
     def test_max_concurrent_downloads_default(self, minimal_config_dict):
         """Default max_concurrent_downloads should be 1."""
         config = Config.model_validate(minimal_config_dict)

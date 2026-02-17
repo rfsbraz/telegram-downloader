@@ -358,6 +358,41 @@ docker stats telegram-downloader
          cpus: '0.5'
    ```
 
+## Download Tracking
+
+### Files Re-Downloaded After Moving
+
+**Symptom:** Files you've already downloaded are being downloaded again after you move or rename them.
+
+**Cause:** Download tracking may be disabled, or the state database was deleted.
+
+**Solutions:**
+
+1. Ensure download tracking is enabled (it's on by default):
+   ```yaml
+   - TDL_TRACK_DOWNLOADS=true
+   ```
+2. Make sure the sessions volume is persisted — the download history lives in `state.db` alongside cursor data:
+   ```yaml
+   volumes:
+     - ./sessions:/app/.sessions
+   ```
+
+### Want to Re-Download Everything
+
+**Symptom:** You want to force re-download of all files (e.g., after a corrupted download).
+
+**Solutions:**
+
+1. Temporarily disable tracking:
+   ```yaml
+   - TDL_TRACK_DOWNLOADS=false
+   ```
+2. Or delete the state database to reset both cursors and download history:
+   ```bash
+   rm ./sessions/state.db
+   ```
+
 ## Getting Help
 
 !!! question "Still Stuck? Open an Issue"

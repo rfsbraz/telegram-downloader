@@ -77,8 +77,11 @@ Examples:
 |----------|------|---------|-------------|
 | `TDL_DOWNLOAD_DIR` | path | `/downloads` | Base directory for downloaded files |
 | `TDL_FLAT_STRUCTURE` | boolean | `false` | Store all files in download dir without per-channel subfolders |
+| `TDL_TRACK_DOWNLOADS` | boolean | `true` | Track downloaded files to prevent re-downloads after move/rename |
 
 When `TDL_FLAT_STRUCTURE` is `false` (default), files are organized as `{download_dir}/{channel_name}/{filename}`. When `true`, all files go directly into `{download_dir}/{filename}`.
+
+When `TDL_TRACK_DOWNLOADS` is `true` (default), a persistent history of downloaded files is kept in the state database. This prevents re-downloading files that have been moved, renamed, or processed by external tools (e.g., media servers, Paperless-ngx, mergerfs). The tracking uses Telegram's `file_unique_id`, which is stable and unique per file content regardless of source. Set to `false` to disable and rely only on file-exists checks.
 
 ### Docker Environment
 
@@ -97,12 +100,14 @@ These are standard Docker environment variables, not prefixed with `TDL_`.
     - PGID=1000
     - TZ=Europe/Lisbon
     - TDL_FLAT_STRUCTURE=true
+    - TDL_TRACK_DOWNLOADS=true
     ```
 
 === "config.toml"
 
     ```toml
     flat_structure = true
+    track_downloads = true
     # PUID, PGID, and TZ are Docker-only (not in config.toml)
     ```
 
@@ -291,6 +296,7 @@ api_hash = "abcdef1234567890abcdef1234567890"
 phone_number = "+1234567890"
 download_dir = "/downloads"
 flat_structure = true
+track_downloads = true
 
 [daemon]
 enabled = true

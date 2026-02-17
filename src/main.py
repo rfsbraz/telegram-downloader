@@ -27,7 +27,7 @@ from src.config.schema import SourceConfig
 from src.config.source_parser import parse_sources, validate_source_access
 from src.organization import build_destination_path, is_duplicate, resolve_conflict
 from src.sources.base import BaseSource
-from src.state import CursorStore
+from src.state import CursorStore, DownloadHistory
 from src.client import create_client, download_media_with_retry
 from src.notifications import NotificationManager, DiscordNotifier, GenericWebhook
 
@@ -89,7 +89,8 @@ async def download_batch(
     config,
     log: logging.Logger,
     source: BaseSource,
-    source_config: SourceConfig
+    source_config: SourceConfig,
+    history: "DownloadHistory | None" = None,
 ) -> int:
     """Download a batch of messages concurrently with semaphore limit.
 
@@ -104,6 +105,7 @@ async def download_batch(
         log: Logger instance
         source: Source object for this batch
         source_config: Source configuration for folder naming
+        history: Optional download history for persistent deduplication
 
     Returns:
         Number of successfully downloaded files
@@ -125,6 +127,14 @@ async def download_batch(
                 msg.video_note
             )
             fname = getattr(media, "file_name", None) or f"message_{msg.id}"
+            media_size = getattr(media, "file_size", 0)
+
+            # Check download history for persistent deduplication
+            file_unique_id = getattr(media, "file_unique_id", None)
+            if history and file_unique_id and history.contains(file_unique_id):
+                log.info(f"Skip (already downloaded): {fname}")
+                cursor_store.set(cursor_key, msg.id)
+                return
 
             # Build organized destination path (includes per-source folder and validation)
             try:
@@ -142,7 +152,6 @@ async def download_batch(
 
             # Check for duplicates and resolve conflicts
             if dest.exists():
-                media_size = getattr(media, "file_size", 0)
                 if is_duplicate(dest, media_size):
                     log.info(f"Skip duplicate: {dest.name} (same size)")
                     cursor_store.set(cursor_key, msg.id)
@@ -173,6 +182,8 @@ async def download_batch(
             if success:
                 downloaded += 1
                 cursor_store.set(cursor_key, msg.id)
+                if history and file_unique_id:
+                    history.record(file_unique_id, fname, media_size, cursor_key, msg.id)
             else:
                 log.error(f"Failed to download: {dest.name}")
                 # Still update cursor to avoid getting stuck
@@ -238,7 +249,7 @@ async def startup_validation(cfg, log, client):
     return sources_with_filters
 
 
-async def run_check(cfg, log, state_store, client, sources_with_filters):
+async def run_check(cfg, log, state_store, client, sources_with_filters, history=None):
     """
     Single check iteration - process all configured sources.
 
@@ -251,6 +262,7 @@ async def run_check(cfg, log, state_store, client, sources_with_filters):
         state_store: CursorStore instance
         client: Pyrogram client instance
         sources_with_filters: Pre-parsed list of (source, filter_config) tuples
+        history: Optional DownloadHistory for persistent deduplication
     """
     # Create global concurrency control
     semaphore = asyncio.Semaphore(cfg.max_concurrent_downloads)
@@ -315,7 +327,8 @@ async def run_check(cfg, log, state_store, client, sources_with_filters):
             cfg,
             log,
             source,
-            source_config
+            source_config,
+            history,
         )
 
         log.info(f"Downloaded {downloaded}/{len(candidates)} files")
@@ -336,6 +349,12 @@ async def main():
     if Path("/app/state.yaml").exists():
         log.info("Migrating state from YAML to SQLite...")
         state_store.migrate_from_yaml("/app/state.yaml")
+
+    # Initialize download history for persistent deduplication
+    history = None
+    if cfg.track_downloads:
+        history = DownloadHistory(str(state_db_path))
+        log.info("Download history tracking enabled")
 
     # Log credentials for debugging (mask sensitive parts)
     log.debug("=" * 50)
@@ -407,7 +426,7 @@ async def main():
                 # Do NOT re-parse sources in run_check - reuse startup_validation result
                 async def check_wrapper():
                     """Wrapper for run_check that captures sources_with_filters."""
-                    await run_check(cfg, log, state_store, client, sources_with_filters)
+                    await run_check(cfg, log, state_store, client, sources_with_filters, history)
 
                 service = DaemonService(
                     check_function=check_wrapper,
@@ -420,9 +439,11 @@ async def main():
                 await service.run()
             else:
                 log.info("Running in single-shot mode")
-                await run_check(cfg, log, state_store, client, sources_with_filters)
+                await run_check(cfg, log, state_store, client, sources_with_filters, history)
     finally:
         # Cleanup
+        if history:
+            history.close()
         state_store.close()
         log.info("Execution complete")
 
