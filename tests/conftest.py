@@ -30,11 +30,13 @@ class MockDocument:
         file_size: int = 1024000,
         mime_type: str = "application/pdf",
         file_id: str = "abc123",
+        file_unique_id: str = "unique_abc123",
     ):
         self.file_name = file_name
         self.file_size = file_size
         self.mime_type = mime_type
         self.file_id = file_id
+        self.file_unique_id = file_unique_id
 
 
 class MockMessage:
@@ -148,6 +150,12 @@ def memory_db(temp_dir):
     needs a file path for WAL mode and parent directory creation.
     """
     return str(temp_dir / "test_cursor.db")
+
+
+@pytest.fixture
+def history_db(temp_dir):
+    """Create a temporary SQLite database file path for DownloadHistory."""
+    return str(temp_dir / "test_history.db")
 
 
 # ============================================================================

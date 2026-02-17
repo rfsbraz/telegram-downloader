@@ -43,6 +43,7 @@ BOOL_FIELDS = {
     "enabled",
     "allow_archives",
     "test_mode",
+    "track_downloads",
 }
 
 # Full field names that should be parsed as integers
@@ -85,6 +86,7 @@ FLAT_FIELDS = {
     "ebook_exts",
     "allow_archives",
     "archive_exts",
+    "track_downloads",
 }
 
 # Two-level nested fields (parent_child format)
@@ -117,7 +119,7 @@ def _parse_value(key: str, value: str) -> Any:
         return [v.strip() for v in value.split(",") if v.strip()]
 
     # Check if it's a boolean field
-    if field_name in BOOL_FIELDS:
+    if field_name in BOOL_FIELDS or key in BOOL_FIELDS:
         return value.lower() in ("true", "1", "yes", "on")
 
     # Check if it's an integer field (full match or suffix match)

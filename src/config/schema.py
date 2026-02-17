@@ -110,6 +110,9 @@ class Config(BaseModel):
     # Storage structure
     flat_structure: bool = Field(default=False)
 
+    # Download tracking
+    track_downloads: bool = Field(default=True)
+
     # Logging
     verbosity: Literal["quiet", "normal", "verbose"] = Field(default="normal")
 
