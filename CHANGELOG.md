@@ -5,6 +5,13 @@
 
 * add missing dependency ([4542021](https://github.com/rfsbraz/telegram-downloader/commit/454202198134f12a4e8561bde262b69cad10035b))
 
+## [1.2.0](https://github.com/rfsbraz/telegram-downloader/compare/v1.1.2...v1.2.0) (2026-02-17)
+
+
+### Features
+
+* add persistent download tracking via file_unique_id ([#23](https://github.com/rfsbraz/telegram-downloader/issues/23)) ([0b23ec7](https://github.com/rfsbraz/telegram-downloader/commit/0b23ec729d0137329341bfb467bc57525baeba8e))
+
 ## [1.1.2](https://github.com/rfsbraz/telegram-downloader/compare/v1.1.1...v1.1.2) (2026-01-27)
 
 
