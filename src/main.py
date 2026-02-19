@@ -362,7 +362,11 @@ async def main():
     log.debug("=" * 50)
     log.debug(f"API ID: {cfg.api_id}")
     log.debug(f"API Hash: {cfg.api_hash[:8]}...{cfg.api_hash[-4:]}" if cfg.api_hash else "API Hash: None")
-    log.debug(f"Phone Number: {cfg.phone_number}")
+    masked_phone = None
+    if cfg.phone_number:
+        # Only log the last 4 digits to avoid exposing the full phone number
+        masked_phone = f"***{cfg.phone_number[-4:]}" if len(cfg.phone_number) >= 4 else "***"
+    log.debug(f"Phone Number: {masked_phone if masked_phone is not None else 'None'}")
     log.debug(f"Session Dir: {cfg.session_dir}")
     log.debug(f"Test Mode: {cfg.test_mode}")
     log.debug("=" * 50)
