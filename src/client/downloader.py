@@ -25,12 +25,17 @@ async def download_media_with_retry(
     message: Message,
     dest_path: Path,
     config: Config,
-    log: logging.Logger
+    log: logging.Logger,
+    expected_size: int = 0,
 ) -> bool:
     """Download media with streaming, retry logic, and FloodWait handling.
 
     Downloads media to a temporary .partial file and atomically renames to final
     destination on success. Uses streaming to avoid loading entire file in memory.
+
+    After download_media() returns, validates the file is non-empty. Pyrogram may
+    silently handle FileReferenceExpired/FloodWait errors internally and write a
+    0-byte file instead of raising an exception.
 
     FloodWait errors are handled specially:
     - Sleep for the exact duration Telegram specifies
@@ -48,6 +53,7 @@ async def download_media_with_retry(
         dest_path: Final destination path for downloaded file
         config: Configuration with retry settings
         log: Logger instance for progress/error reporting
+        expected_size: Expected file size in bytes (for logging context)
 
     Returns:
         True if download succeeded, False if all retries exhausted
@@ -85,6 +91,26 @@ async def download_media_with_retry(
                 file_name=str(dest_temp),
                 progress=progress_callback
             )
+
+            # Validate file is non-empty (pyrogram may silently produce 0-byte
+            # files when it handles FileReferenceExpired/FloodWait internally)
+            if dest_temp.exists() and dest_temp.stat().st_size == 0:
+                dest_temp.unlink()
+                if attempt < config.max_retries:
+                    delay = min(config.base_delay * (2 ** (attempt - 1)), config.max_delay)
+                    log.warning(
+                        f"Download produced empty file: {dest_path.name} "
+                        f"(expected {expected_size} bytes). "
+                        f"Retrying in {delay}s..."
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    log.error(
+                        f"Download produced empty file after "
+                        f"{config.max_retries} retries: {dest_path.name}"
+                    )
+                    return False
 
             # Atomic rename on success (prevents partial files in download dir)
             dest_temp.rename(dest_path)

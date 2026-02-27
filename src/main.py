@@ -176,7 +176,8 @@ async def download_batch(
                 msg,
                 dest,
                 config,
-                log
+                log,
+                expected_size=media_size,
             )
 
             if success:
