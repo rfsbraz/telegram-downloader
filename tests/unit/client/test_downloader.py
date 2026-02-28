@@ -31,7 +31,10 @@ def log():
 
 @pytest.fixture
 def message():
-    return MagicMock()
+    msg = MagicMock()
+    msg.chat.id = -1001234567890
+    msg.id = 42
+    return msg
 
 
 @pytest.fixture
@@ -46,9 +49,13 @@ class TestZeroByteValidation:
     async def test_zero_byte_download_triggers_retry(
         self, client, message, dest_path, log
     ):
-        """A zero-byte download should be retried, not accepted."""
+        """A zero-byte download should refresh the message and retry."""
         config = make_config(max_retries=3)
         call_count = 0
+        fresh_message = MagicMock()
+        fresh_message.chat.id = message.chat.id
+        fresh_message.id = message.id
+        client.get_messages = AsyncMock(return_value=fresh_message)
 
         async def fake_download(msg, file_name, progress=None):
             nonlocal call_count
@@ -72,6 +79,13 @@ class TestZeroByteValidation:
         assert call_count == 3
         assert dest_path.exists()
         assert dest_path.read_bytes() == b"real content"
+        # Verify get_messages was called to refresh stale file references
+        assert client.get_messages.call_count == 2
+        client.get_messages.assert_called_with(
+            chat_id=message.chat.id,
+            message_ids=message.id,
+            replies=0,
+        )
 
     @pytest.mark.asyncio
     async def test_zero_byte_exhausts_retries_returns_false(
@@ -118,3 +132,71 @@ class TestZeroByteValidation:
         assert dest_path.exists()
         assert dest_path.read_bytes() == b"valid file content here"
         assert client.download_media.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_refresh_succeeds_and_retry_downloads_with_fresh_message(
+        self, client, message, dest_path, log
+    ):
+        """After re-fetch, the retry uses the fresh message and succeeds."""
+        config = make_config(max_retries=2)
+        fresh_message = MagicMock()
+        fresh_message.chat.id = message.chat.id
+        fresh_message.id = message.id
+        client.get_messages = AsyncMock(return_value=fresh_message)
+        call_count = 0
+
+        async def fake_download(msg, file_name, progress=None):
+            nonlocal call_count
+            call_count += 1
+            p = Path(file_name)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            if msg is message:
+                # Stale message produces zero-byte file
+                p.write_bytes(b"")
+            else:
+                # Fresh message downloads correctly
+                p.write_bytes(b"fresh content")
+
+        client.download_media = AsyncMock(side_effect=fake_download)
+
+        result = await download_media_with_retry(
+            client, message, dest_path, config, log, expected_size=13
+        )
+
+        assert result is True
+        assert call_count == 2
+        assert dest_path.read_bytes() == b"fresh content"
+        # Second call should use the fresh message
+        second_call_msg = client.download_media.call_args_list[1][0][0]
+        assert second_call_msg is fresh_message
+
+    @pytest.mark.asyncio
+    async def test_refresh_fails_gracefully_and_continues_retry(
+        self, client, message, dest_path, log, caplog
+    ):
+        """If get_messages fails, retry continues with the original message."""
+        config = make_config(max_retries=2)
+        client.get_messages = AsyncMock(side_effect=Exception("network error"))
+        call_count = 0
+
+        async def fake_download(msg, file_name, progress=None):
+            nonlocal call_count
+            call_count += 1
+            p = Path(file_name)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            if call_count < 2:
+                p.write_bytes(b"")
+            else:
+                p.write_bytes(b"recovered content")
+
+        client.download_media = AsyncMock(side_effect=fake_download)
+
+        with caplog.at_level(logging.WARNING):
+            result = await download_media_with_retry(
+                client, message, dest_path, config, log, expected_size=17
+            )
+
+        assert result is True
+        assert call_count == 2
+        assert dest_path.read_bytes() == b"recovered content"
+        assert "Failed to refresh message reference" in caplog.text

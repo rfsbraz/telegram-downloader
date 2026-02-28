@@ -99,10 +99,20 @@ async def download_media_with_retry(
                 if attempt < config.max_retries:
                     delay = min(config.base_delay * (2 ** (attempt - 1)), config.max_delay)
                     log.warning(
-                        f"Download produced empty file: {dest_path.name} "
-                        f"(expected {expected_size} bytes). "
-                        f"Retrying in {delay}s..."
+                        f"Stale file reference for {dest_path.name}, "
+                        f"refreshing and retrying in {delay}s..."
                     )
+                    # Re-fetch message to get fresh file references before retry
+                    try:
+                        fresh = await client.get_messages(
+                            chat_id=message.chat.id,
+                            message_ids=message.id,
+                            replies=0,
+                        )
+                        if fresh:
+                            message = fresh
+                    except Exception as ref_err:
+                        log.warning(f"Failed to refresh message reference: {ref_err}")
                     await asyncio.sleep(delay)
                     continue
                 else:
