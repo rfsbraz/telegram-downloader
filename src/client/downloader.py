@@ -15,7 +15,7 @@ from typing import Optional
 
 from pyrogram import Client
 from pyrogram.types import Message
-from pyrogram.errors import FloodWait
+from pyrogram.errors import FloodWait, FileReferenceExpired
 
 from src.config.schema import Config
 
@@ -135,6 +135,36 @@ async def download_media_with_retry(
             # Loop continues to retry WITHOUT incrementing attempt counter
             # Note: We don't increment here, so this doesn't count as a retry
             continue
+
+        except FileReferenceExpired:
+            # Pyrogram sometimes raises this instead of handling it internally.
+            # Re-fetch the message to get a fresh file reference before retrying.
+            if dest_temp.exists():
+                dest_temp.unlink()
+            if attempt < config.max_retries:
+                delay = min(config.base_delay * (2 ** (attempt - 1)), config.max_delay)
+                log.warning(
+                    f"Stale file reference for {dest_path.name}, "
+                    f"refreshing and retrying in {delay}s..."
+                )
+                try:
+                    fresh = await client.get_messages(
+                        chat_id=message.chat.id,
+                        message_ids=message.id,
+                        replies=0,
+                    )
+                    if fresh:
+                        message = fresh
+                except Exception as ref_err:
+                    log.warning(f"Failed to refresh message reference: {ref_err}")
+                await asyncio.sleep(delay)
+                continue
+            else:
+                log.error(
+                    f"Download failed after {config.max_retries} retries "
+                    f"(stale file reference): {dest_path.name}"
+                )
+                return False
 
         except Exception as e:
             # Transient errors: network issues, timeouts, etc.

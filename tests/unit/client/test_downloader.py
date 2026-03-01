@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pyrogram.errors import FileReferenceExpired
 
 from src.client.downloader import download_media_with_retry
 
@@ -199,4 +200,97 @@ class TestZeroByteValidation:
         assert result is True
         assert call_count == 2
         assert dest_path.read_bytes() == b"recovered content"
+        assert "Failed to refresh message reference" in caplog.text
+
+
+class TestFileReferenceExpiredHandling:
+    """Tests for explicit FileReferenceExpired exception handling."""
+
+    @pytest.mark.asyncio
+    async def test_file_reference_expired_refreshes_and_retries(
+        self, client, message, dest_path, log, caplog
+    ):
+        """FileReferenceExpired should refresh the message and retry."""
+        config = make_config(max_retries=2)
+        fresh_message = MagicMock()
+        fresh_message.chat.id = message.chat.id
+        fresh_message.id = message.id
+        client.get_messages = AsyncMock(return_value=fresh_message)
+        call_count = 0
+
+        async def fake_download(msg, file_name, progress=None):
+            nonlocal call_count
+            call_count += 1
+            if msg is message:
+                raise FileReferenceExpired()
+            # Fresh message succeeds
+            p = Path(file_name)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(b"fresh download")
+
+        client.download_media = AsyncMock(side_effect=fake_download)
+
+        with caplog.at_level(logging.WARNING):
+            result = await download_media_with_retry(
+                client, message, dest_path, config, log, expected_size=14
+            )
+
+        assert result is True
+        assert call_count == 2
+        assert dest_path.read_bytes() == b"fresh download"
+        assert "Stale file reference" in caplog.text
+        client.get_messages.assert_called_once_with(
+            chat_id=message.chat.id,
+            message_ids=message.id,
+            replies=0,
+        )
+
+    @pytest.mark.asyncio
+    async def test_file_reference_expired_exhausts_retries(
+        self, client, message, dest_path, log, caplog
+    ):
+        """FileReferenceExpired on all attempts should return False."""
+        config = make_config(max_retries=2)
+        client.get_messages = AsyncMock(return_value=message)
+
+        client.download_media = AsyncMock(
+            side_effect=FileReferenceExpired()
+        )
+
+        with caplog.at_level(logging.ERROR):
+            result = await download_media_with_retry(
+                client, message, dest_path, config, log
+            )
+
+        assert result is False
+        assert "stale file reference" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_file_reference_expired_refresh_fails_continues_retry(
+        self, client, message, dest_path, log, caplog
+    ):
+        """If refresh fails during FileReferenceExpired, retry still continues."""
+        config = make_config(max_retries=2)
+        client.get_messages = AsyncMock(side_effect=Exception("network down"))
+        call_count = 0
+
+        async def fake_download(msg, file_name, progress=None):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 2:
+                raise FileReferenceExpired()
+            p = Path(file_name)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(b"recovered")
+
+        client.download_media = AsyncMock(side_effect=fake_download)
+
+        with caplog.at_level(logging.WARNING):
+            result = await download_media_with_retry(
+                client, message, dest_path, config, log
+            )
+
+        assert result is True
+        assert call_count == 2
+        assert dest_path.read_bytes() == b"recovered"
         assert "Failed to refresh message reference" in caplog.text
