@@ -2,5 +2,6 @@
 
 from .cursor import CursorStore, StateError
 from .history import DownloadHistory
+from .pending import PendingDownloads
 
-__all__ = ["CursorStore", "DownloadHistory", "StateError"]
+__all__ = ["CursorStore", "DownloadHistory", "PendingDownloads", "StateError"]

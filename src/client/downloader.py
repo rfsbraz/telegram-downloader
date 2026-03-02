@@ -122,6 +122,39 @@ async def download_media_with_retry(
                     )
                     return False
 
+            # Validate file size against expected (catches truncated downloads
+            # from 503 recovery where pyrogram reports success)
+            if expected_size > 0 and dest_temp.exists():
+                actual_size = dest_temp.stat().st_size
+                if actual_size < int(expected_size * 0.99):  # 1% tolerance
+                    dest_temp.unlink()
+                    if attempt < config.max_retries:
+                        delay = min(config.base_delay * (2 ** (attempt - 1)), config.max_delay)
+                        log.warning(
+                            f"Size mismatch for {dest_path.name}: "
+                            f"expected ~{expected_size} bytes, got {actual_size}. "
+                            f"Retrying in {delay}s..."
+                        )
+                        # Refresh message reference before retry
+                        try:
+                            fresh = await client.get_messages(
+                                chat_id=message.chat.id,
+                                message_ids=message.id,
+                                replies=0,
+                            )
+                            if fresh:
+                                message = fresh
+                        except Exception as ref_err:
+                            log.warning(f"Failed to refresh message reference: {ref_err}")
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        log.error(
+                            f"Download incomplete after {config.max_retries} retries: "
+                            f"{dest_path.name} ({actual_size}/{expected_size} bytes)"
+                        )
+                        return False
+
             # Atomic rename on success (prevents partial files in download dir)
             dest_temp.rename(dest_path)
             log.info(f"Download complete: {dest_path.name}")

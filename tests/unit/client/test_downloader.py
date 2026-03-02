@@ -294,3 +294,155 @@ class TestFileReferenceExpiredHandling:
         assert call_count == 2
         assert dest_path.read_bytes() == b"recovered"
         assert "Failed to refresh message reference" in caplog.text
+
+
+class TestSizeValidation:
+    """Tests for truncated download detection via size validation."""
+
+    @pytest.mark.asyncio
+    async def test_truncated_file_triggers_retry_and_succeeds(
+        self, client, message, dest_path, log
+    ):
+        """A truncated file should retry and succeed on full download."""
+        config = make_config(max_retries=3)
+        call_count = 0
+        fresh_message = MagicMock()
+        fresh_message.chat.id = message.chat.id
+        fresh_message.id = message.id
+        client.get_messages = AsyncMock(return_value=fresh_message)
+
+        async def fake_download(msg, file_name, progress=None):
+            nonlocal call_count
+            call_count += 1
+            p = Path(file_name)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            if call_count < 2:
+                # Simulate truncated file (51 bytes instead of 100)
+                p.write_bytes(b"x" * 51)
+            else:
+                # Full download
+                p.write_bytes(b"x" * 100)
+
+        client.download_media = AsyncMock(side_effect=fake_download)
+
+        result = await download_media_with_retry(
+            client, message, dest_path, config, log, expected_size=100
+        )
+
+        assert result is True
+        assert call_count == 2
+        assert dest_path.exists()
+        assert dest_path.stat().st_size == 100
+
+    @pytest.mark.asyncio
+    async def test_truncated_file_exhausts_retries_returns_false(
+        self, client, message, dest_path, log, caplog
+    ):
+        """Truncated file on all attempts should return False."""
+        config = make_config(max_retries=2)
+
+        async def fake_download(msg, file_name, progress=None):
+            p = Path(file_name)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            # Always truncated (50 bytes instead of 100)
+            p.write_bytes(b"x" * 50)
+
+        client.download_media = AsyncMock(side_effect=fake_download)
+        client.get_messages = AsyncMock(return_value=message)
+
+        with caplog.at_level(logging.ERROR):
+            result = await download_media_with_retry(
+                client, message, dest_path, config, log, expected_size=100
+            )
+
+        assert result is False
+        assert not dest_path.exists()
+        assert "Download incomplete after 2 retries" in caplog.text
+        assert "50/100 bytes" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_file_within_tolerance_passes(
+        self, client, message, dest_path, log
+    ):
+        """A file within 1% tolerance should pass validation."""
+        config = make_config(max_retries=3)
+
+        async def fake_download(msg, file_name, progress=None):
+            p = Path(file_name)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            # 99.5% of expected size — within 1% tolerance
+            p.write_bytes(b"x" * 995)
+
+        client.download_media = AsyncMock(side_effect=fake_download)
+
+        result = await download_media_with_retry(
+            client, message, dest_path, config, log, expected_size=1000
+        )
+
+        assert result is True
+        assert dest_path.exists()
+        assert dest_path.stat().st_size == 995
+        assert client.download_media.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_no_expected_size_skips_validation(
+        self, client, message, dest_path, log
+    ):
+        """When expected_size is 0, size validation is skipped entirely."""
+        config = make_config(max_retries=3)
+
+        async def fake_download(msg, file_name, progress=None):
+            p = Path(file_name)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            # Small file with no expected size — should pass
+            p.write_bytes(b"x" * 10)
+
+        client.download_media = AsyncMock(side_effect=fake_download)
+
+        result = await download_media_with_retry(
+            client, message, dest_path, config, log, expected_size=0
+        )
+
+        assert result is True
+        assert dest_path.exists()
+        assert client.download_media.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_size_mismatch_refreshes_message_reference(
+        self, client, message, dest_path, log
+    ):
+        """Size mismatch should attempt to refresh the message reference."""
+        config = make_config(max_retries=2)
+        fresh_message = MagicMock()
+        fresh_message.chat.id = message.chat.id
+        fresh_message.id = message.id
+        client.get_messages = AsyncMock(return_value=fresh_message)
+        call_count = 0
+
+        async def fake_download(msg, file_name, progress=None):
+            nonlocal call_count
+            call_count += 1
+            p = Path(file_name)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            if call_count < 2:
+                p.write_bytes(b"x" * 50)  # Truncated
+            else:
+                p.write_bytes(b"x" * 100)  # Full
+
+        client.download_media = AsyncMock(side_effect=fake_download)
+
+        result = await download_media_with_retry(
+            client, message, dest_path, config, log, expected_size=100
+        )
+
+        assert result is True
+        assert call_count == 2
+        # Verify get_messages was called to refresh
+        client.get_messages.assert_called_once_with(
+            chat_id=message.chat.id,
+            message_ids=message.id,
+            replies=0,
+        )
+        # Second download call should use the fresh message
+        second_call_msg = client.download_media.call_args_list[1][0][0]
+        assert second_call_msg is fresh_message

@@ -27,7 +27,7 @@ from src.config.schema import SourceConfig
 from src.config.source_parser import parse_sources, validate_source_access
 from src.organization import build_destination_path, is_duplicate, resolve_conflict
 from src.sources.base import BaseSource
-from src.state import CursorStore, DownloadHistory
+from src.state import CursorStore, DownloadHistory, PendingDownloads
 from src.client import create_client, download_media_with_retry
 from src.notifications import NotificationManager, DiscordNotifier, GenericWebhook
 
@@ -250,7 +250,7 @@ async def startup_validation(cfg, log, client):
     return sources_with_filters
 
 
-async def run_check(cfg, log, state_store, client, sources_with_filters, history=None):
+async def run_check(cfg, log, state_store, client, sources_with_filters, history=None, pending=None):
     """
     Single check iteration - process all configured sources.
 
@@ -264,6 +264,7 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
         client: Pyrogram client instance
         sources_with_filters: Pre-parsed list of (source, filter_config) tuples
         history: Optional DownloadHistory for persistent deduplication
+        pending: Optional PendingDownloads queue for resumable downloads
     """
     # Create global concurrency control
     semaphore = asyncio.Semaphore(cfg.max_concurrent_downloads)
@@ -287,50 +288,112 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
         )
         log.info("=" * 60)
 
-        # Collect candidate messages (newest first from source)
-        # Stop early once we have enough to satisfy download limit
         max_downloads = cfg.max_downloads_per_run or 0
-        candidates = []
-        async for msg in source.iterate_new_media(last_seen_id):
-            if await composite_filter.matches(msg):
-                candidates.append(msg)
-                # Stop scanning once we have enough (0 = unlimited)
-                if max_downloads and len(candidates) >= max_downloads:
-                    log.debug(f"Reached download limit ({max_downloads}), stopping scan")
-                    break
 
-        if not candidates:
-            log.info("No new matching documents.")
-            continue
-
-        # Sort oldest first for sequential processing (ensures cursor advances correctly)
-        candidates.sort(key=lambda m: m.id)
-
-        log.info(
-            f"Found {len(candidates)} candidates "
-            f"(oldest={candidates[0].id}, newest={candidates[-1].id})"
-        )
-
-        # Look up source_config for this source with defensive check
+        # Look up source_config early (needed for download_batch)
         source_config = source_config_map.get(cursor_key)
         if source_config is None:
             log.error(f"No source config found for cursor key: {cursor_key}")
-            continue  # Skip this source, move to next
+            continue
 
-        # Download batch concurrently
-        downloaded = await download_batch(
-            candidates,
-            semaphore,
-            client,
-            Path(cfg.download_dir),
-            state_store,
-            cursor_key,
-            cfg,
-            log,
-            source,
-            source_config,
-            history,
-        )
+        # --- Candidate collection with pending queue ---
+        if pending and pending.has_pending(cursor_key):
+            # Resume mode: we have leftover IDs from a previous run.
+            # 1) Scan only for NEW messages above the pending range
+            scan_above = pending.get_max_message_id(cursor_key)
+            new_ids = []
+            async for msg in source.iterate_new_media(scan_above):
+                if await composite_filter.matches(msg):
+                    new_ids.append(msg.id)
+            if new_ids:
+                pending.add_batch(cursor_key, new_ids)
+                log.info(f"Added {len(new_ids)} new message(s) to pending queue")
+
+            # 2) Pull oldest batch from pending
+            batch_limit = max_downloads if max_downloads else 500
+            batch_ids = pending.get_oldest(cursor_key, batch_limit)
+            if not batch_ids:
+                log.info("No pending downloads remaining.")
+                continue
+
+            # 3) Fetch full Message objects in one API call
+            messages = await client.get_messages(
+                chat_id=source.chat_id, message_ids=batch_ids
+            )
+            # get_messages returns a single Message when given one ID
+            if not isinstance(messages, list):
+                messages = [messages]
+            # Filter out empty/None results
+            candidates = [m for m in messages if m and m.id]
+            candidates.sort(key=lambda m: m.id)
+
+            if not candidates:
+                log.info("No valid messages from pending IDs.")
+                pending.remove_batch(cursor_key, batch_ids)
+                continue
+
+            log.info(
+                f"Processing {len(candidates)} from pending queue "
+                f"(oldest={candidates[0].id}, newest={candidates[-1].id}, "
+                f"total pending={pending.count(cursor_key)})"
+            )
+
+            # Download and remove processed IDs
+            downloaded = await download_batch(
+                candidates, semaphore, client, Path(cfg.download_dir),
+                state_store, cursor_key, cfg, log, source, source_config, history,
+            )
+            pending.remove_batch(cursor_key, [m.id for m in candidates])
+            remaining = pending.count(cursor_key)
+            if remaining:
+                log.info(f"{remaining} message(s) still pending for next run")
+        else:
+            # Fresh scan: collect ALL candidates (no early break)
+            candidates = []
+            async for msg in source.iterate_new_media(last_seen_id):
+                if await composite_filter.matches(msg):
+                    candidates.append(msg)
+
+            if not candidates:
+                log.info("No new matching documents.")
+                continue
+
+            # Sort oldest first for sequential processing
+            candidates.sort(key=lambda m: m.id)
+
+            # If more candidates than limit, store ALL in pending and take oldest N
+            if max_downloads and len(candidates) > max_downloads:
+                if pending:
+                    all_ids = [m.id for m in candidates]
+                    pending.add_batch(cursor_key, all_ids)
+                    candidates = candidates[:max_downloads]
+                    log.info(
+                        f"Found {len(all_ids)} candidates, queued all, "
+                        f"processing oldest {max_downloads}"
+                    )
+                else:
+                    # No pending store available, fall back to truncation
+                    candidates = candidates[:max_downloads]
+                    log.info(
+                        f"Truncated to {max_downloads} candidates (no pending store)"
+                    )
+
+            log.info(
+                f"Found {len(candidates)} candidates "
+                f"(oldest={candidates[0].id}, newest={candidates[-1].id})"
+            )
+
+            downloaded = await download_batch(
+                candidates, semaphore, client, Path(cfg.download_dir),
+                state_store, cursor_key, cfg, log, source, source_config, history,
+            )
+
+            # Remove downloaded IDs from pending (if they were queued)
+            if pending and pending.has_pending(cursor_key):
+                pending.remove_batch(cursor_key, [m.id for m in candidates])
+                remaining = pending.count(cursor_key)
+                if remaining:
+                    log.info(f"{remaining} message(s) still pending for next run")
 
         log.info(f"Downloaded {downloaded}/{len(candidates)} files")
 
@@ -356,6 +419,10 @@ async def main():
     if cfg.track_downloads:
         history = DownloadHistory(str(state_db_path))
         log.info("Download history tracking enabled")
+
+    # Initialize pending downloads queue
+    pending = PendingDownloads(str(state_db_path))
+    log.info("Pending downloads queue initialized")
 
     # Log credentials for debugging (mask sensitive parts)
     log.debug("=" * 50)
@@ -427,7 +494,7 @@ async def main():
                 # Do NOT re-parse sources in run_check - reuse startup_validation result
                 async def check_wrapper():
                     """Wrapper for run_check that captures sources_with_filters."""
-                    await run_check(cfg, log, state_store, client, sources_with_filters, history)
+                    await run_check(cfg, log, state_store, client, sources_with_filters, history, pending)
 
                 service = DaemonService(
                     check_function=check_wrapper,
@@ -440,11 +507,12 @@ async def main():
                 await service.run()
             else:
                 log.info("Running in single-shot mode")
-                await run_check(cfg, log, state_store, client, sources_with_filters, history)
+                await run_check(cfg, log, state_store, client, sources_with_filters, history, pending)
     finally:
         # Cleanup
         if history:
             history.close()
+        pending.close()
         state_store.close()
         log.info("Execution complete")
 
