@@ -35,7 +35,7 @@ class TestMinimalConfigValidation:
         assert config.download_dir == Path("/downloads")
         assert config.session_dir == Path("/app/.sessions")
         assert config.verbosity == "normal"
-        assert config.max_concurrent_downloads == 3
+        assert config.max_concurrent_downloads == 1
         assert config.daemon.enabled is False
         assert config.notifications.enabled is False
 
