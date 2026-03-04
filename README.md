@@ -7,9 +7,7 @@
 
 A self-hosted daemon that automatically downloads media from Telegram channels, groups, and forum topics. Configure once, run forever.
 
-[**Documentation**](https://rfsbraz.github.io/telegram-downloader/) · [**Quick Start**](#-quick-start) · [**Examples**](#-examples)
-
----
+[**Documentation**](https://rfsbraz.github.io/telegram-downloader/) | [**Quick Start**](#quick-start) | [**Examples**](#examples)
 
 ## Why?
 
@@ -19,7 +17,7 @@ Telegram is great for sharing files, but manually downloading from multiple sour
 - Filters by extension, size, date, or filename pattern
 - Organizes files into folders by source
 - Skips duplicates automatically
-- Tracks downloads persistently — files aren't re-downloaded after being moved or renamed
+- Tracks downloads persistently so files aren't re-downloaded after being moved or renamed
 - Sends notifications when downloads complete
 
 ## Features
@@ -39,16 +37,15 @@ Telegram is great for sharing files, but manually downloading from multiple sour
 
 - Docker and Docker Compose
 - Telegram API credentials from [my.telegram.org/apps](https://my.telegram.org/apps)
-- Telegram account with access to desired channels/groups
-- <img src=".github/images/channel-url.png" alt="The channel url" width="400">
-  
+- Telegram account with access to the channels/groups you want to download from
+
+<img src=".github/images/channel-url.png" alt="Where to find the channel URL" width="400">
+
 ### Setup
 
 ```bash
-# Create project directory
 mkdir telegram-downloader && cd telegram-downloader
 
-# Create docker-compose.yml
 cat > docker-compose.yml << 'EOF'
 services:
   telegram-downloader:
@@ -68,7 +65,6 @@ services:
     tty: true
 EOF
 
-# Start
 docker compose run --rm telegram-downloader
 ```
 
@@ -76,7 +72,7 @@ On first run, you'll be prompted for the Telegram verification code sent to your
 
 ## Configuration
 
-All configuration is done via environment variables with the `TDL_` prefix.
+All configuration is done via environment variables with the `TDL_` prefix. See the [full configuration reference](https://rfsbraz.github.io/telegram-downloader/configuration/) for all options.
 
 ### Sources
 
@@ -124,8 +120,8 @@ All configuration is done via environment variables with the `TDL_` prefix.
 
 ```yaml
 # User/group ID for file permissions (arr-stack compatible)
-- PUID=1000  # default: 1000
-- PGID=1000  # default: 1000
+- PUID=1000
+- PGID=1000
 
 # Timezone
 - TZ=Europe/Lisbon
@@ -133,12 +129,10 @@ All configuration is done via environment variables with the `TDL_` prefix.
 # Store all files in download_dir without per-channel subfolders
 - TDL_FLAT_STRUCTURE=true
 
-# Disable persistent download tracking (enabled by default)
+# Persistent download tracking (enabled by default)
 # When enabled, files won't be re-downloaded after being moved/renamed
 - TDL_TRACK_DOWNLOADS=true
 ```
-
-See the [full configuration reference](https://rfsbraz.github.io/telegram-downloader/configuration/) for all options.
 
 ## Examples
 
@@ -163,8 +157,6 @@ docker pull rfsbraz/telegram-downloader:latest
 docker pull ghcr.io/rfsbraz/telegram-downloader:latest
 ```
 
-### Tags
-
 | Tag | Description |
 |-----|-------------|
 | `latest` | Latest stable release |
@@ -174,10 +166,7 @@ docker pull ghcr.io/rfsbraz/telegram-downloader:latest
 | `v1` | Latest minor for major version |
 | `sha-abc1234` | Specific commit |
 
-### Architectures
-
-- `linux/amd64` — Intel/AMD x86_64
-- `linux/arm64` — Raspberry Pi 4+, Apple Silicon, AWS Graviton
+Multi-arch: `linux/amd64` and `linux/arm64` (Raspberry Pi 4+, Apple Silicon, AWS Graviton).
 
 ## Troubleshooting
 
@@ -193,39 +182,31 @@ See the [troubleshooting guide](https://rfsbraz.github.io/telegram-downloader/tr
 ## Development
 
 ```bash
-# Clone
 git clone https://github.com/rfsbraz/telegram-downloader.git
 cd telegram-downloader
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Run tests
-pytest tests/ -v
-
-# Build Docker image locally
-docker build -t telegram-downloader .
 ```
 
-## Contributing
+```bash
+make test          # all tests with coverage
+make unit          # unit tests only
+make integration   # integration tests only
+make build         # build Docker image
+make run           # build + docker compose up
+```
 
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit with conventional commits (`feat:`, `fix:`, `docs:`, etc.)
-4. Push and open a Pull Request
+See [CONTRIBUTING.md](CONTRIBUTING.md) for full development guidelines.
 
 ## License
 
-MIT — see [LICENSE](LICENSE) for details.
+MIT - see [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 
-- [Pyrogram](https://docs.pyrogram.org/) — Telegram MTProto API framework
-- [Pydantic](https://docs.pydantic.dev/) — Data validation
-- [docker/metadata-action](https://github.com/docker/metadata-action) — Docker tagging
+- [Pyrogram](https://docs.pyrogram.org/) - Telegram MTProto API framework
+- [Pydantic](https://docs.pydantic.dev/) - Data validation
+- [docker/metadata-action](https://github.com/docker/metadata-action) - Docker tagging
 
 ## ☕ Support
 
-If you find this useful and want to support development, you can [buy me a coffee](https://buymeacoffee.com/rfsbraz) — no pressure at all, just a nice way to say thanks.
+If you find this useful and want to support development, you can [buy me a coffee](https://buymeacoffee.com/rfsbraz) - no pressure at all, just a nice way to say thanks.

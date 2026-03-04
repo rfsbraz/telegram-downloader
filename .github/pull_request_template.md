@@ -1,23 +1,17 @@
 ## Summary
+
+<!-- What does this PR do? Keep it brief. -->
+
+## Type of Change
+
 - [ ] Bug fix
-- [ ] Feature
+- [ ] New feature
+- [ ] Refactoring (no functional changes)
 - [ ] Documentation
-- [ ] Maintenance
-
-## Description
-Describe what this PR changes. Include context and references to relevant issues or documentation.
-
-## Testing
-List the tests you ran and the results. Include commands, unit test names, or manual verification steps.
-- [ ] `pytest`
-- [ ] `docker compose up`
-- [ ] Other (specify below)
+- [ ] CI/CD or build
+- [ ] Dependencies
 
 ## Checklist
-- [ ] I updated documentation where necessary.
-- [ ] I added or updated tests to cover my changes.
-- [ ] I verified this change does not break existing functionality.
-- [ ] I have assigned reviewers or requested feedback as appropriate.
 
-## Additional Notes
-Add any follow-up steps, rollout considerations, or outstanding questions.
+- [ ] Tests pass (`make test`)
+- [ ] Documentation updated (if applicable)
