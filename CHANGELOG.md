@@ -5,6 +5,13 @@
 
 * add missing dependency ([4542021](https://github.com/rfsbraz/telegram-downloader/commit/454202198134f12a4e8561bde262b69cad10035b))
 
+## [1.2.1](https://github.com/rfsbraz/telegram-downloader/compare/v1.2.0...v1.2.1) (2026-03-04)
+
+
+### Bug Fixes
+
+* detect and retry zero-byte downloads ([#27](https://github.com/rfsbraz/telegram-downloader/issues/27)) ([6d191e9](https://github.com/rfsbraz/telegram-downloader/commit/6d191e9c3be355120628f2b3e449580572425366))
+
 ## [1.2.0](https://github.com/rfsbraz/telegram-downloader/compare/v1.1.2...v1.2.0) (2026-02-17)
 
 
