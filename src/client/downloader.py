@@ -15,7 +15,7 @@ from typing import Optional
 
 from pyrogram import Client
 from pyrogram.types import Message
-from pyrogram.errors import FloodWait
+from pyrogram.errors import FloodWait, FileReferenceExpired
 
 from src.config.schema import Config
 
@@ -25,12 +25,17 @@ async def download_media_with_retry(
     message: Message,
     dest_path: Path,
     config: Config,
-    log: logging.Logger
+    log: logging.Logger,
+    expected_size: int = 0,
 ) -> bool:
     """Download media with streaming, retry logic, and FloodWait handling.
 
     Downloads media to a temporary .partial file and atomically renames to final
     destination on success. Uses streaming to avoid loading entire file in memory.
+
+    After download_media() returns, validates the file is non-empty. Pyrogram may
+    silently handle FileReferenceExpired/FloodWait errors internally and write a
+    0-byte file instead of raising an exception.
 
     FloodWait errors are handled specially:
     - Sleep for the exact duration Telegram specifies
@@ -48,6 +53,7 @@ async def download_media_with_retry(
         dest_path: Final destination path for downloaded file
         config: Configuration with retry settings
         log: Logger instance for progress/error reporting
+        expected_size: Expected file size in bytes (for logging context)
 
     Returns:
         True if download succeeded, False if all retries exhausted
@@ -86,6 +92,69 @@ async def download_media_with_retry(
                 progress=progress_callback
             )
 
+            # Validate file is non-empty (pyrogram may silently produce 0-byte
+            # files when it handles FileReferenceExpired/FloodWait internally)
+            if dest_temp.exists() and dest_temp.stat().st_size == 0:
+                dest_temp.unlink()
+                if attempt < config.max_retries:
+                    delay = min(config.base_delay * (2 ** (attempt - 1)), config.max_delay)
+                    log.warning(
+                        f"Stale file reference for {dest_path.name}, "
+                        f"refreshing and retrying in {delay}s..."
+                    )
+                    # Re-fetch message to get fresh file references before retry
+                    try:
+                        fresh = await client.get_messages(
+                            chat_id=message.chat.id,
+                            message_ids=message.id,
+                            replies=0,
+                        )
+                        if fresh:
+                            message = fresh
+                    except Exception as ref_err:
+                        log.warning(f"Failed to refresh message reference: {ref_err}")
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    log.error(
+                        f"Download produced empty file after "
+                        f"{config.max_retries} retries: {dest_path.name}"
+                    )
+                    return False
+
+            # Validate file size against expected (catches truncated downloads
+            # from 503 recovery where pyrogram reports success)
+            if expected_size > 0 and dest_temp.exists():
+                actual_size = dest_temp.stat().st_size
+                if actual_size < int(expected_size * 0.99):  # 1% tolerance
+                    dest_temp.unlink()
+                    if attempt < config.max_retries:
+                        delay = min(config.base_delay * (2 ** (attempt - 1)), config.max_delay)
+                        log.warning(
+                            f"Size mismatch for {dest_path.name}: "
+                            f"expected ~{expected_size} bytes, got {actual_size}. "
+                            f"Retrying in {delay}s..."
+                        )
+                        # Refresh message reference before retry
+                        try:
+                            fresh = await client.get_messages(
+                                chat_id=message.chat.id,
+                                message_ids=message.id,
+                                replies=0,
+                            )
+                            if fresh:
+                                message = fresh
+                        except Exception as ref_err:
+                            log.warning(f"Failed to refresh message reference: {ref_err}")
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        log.error(
+                            f"Download incomplete after {config.max_retries} retries: "
+                            f"{dest_path.name} ({actual_size}/{expected_size} bytes)"
+                        )
+                        return False
+
             # Atomic rename on success (prevents partial files in download dir)
             dest_temp.rename(dest_path)
             log.info(f"Download complete: {dest_path.name}")
@@ -99,6 +168,36 @@ async def download_media_with_retry(
             # Loop continues to retry WITHOUT incrementing attempt counter
             # Note: We don't increment here, so this doesn't count as a retry
             continue
+
+        except FileReferenceExpired:
+            # Pyrogram sometimes raises this instead of handling it internally.
+            # Re-fetch the message to get a fresh file reference before retrying.
+            if dest_temp.exists():
+                dest_temp.unlink()
+            if attempt < config.max_retries:
+                delay = min(config.base_delay * (2 ** (attempt - 1)), config.max_delay)
+                log.warning(
+                    f"Stale file reference for {dest_path.name}, "
+                    f"refreshing and retrying in {delay}s..."
+                )
+                try:
+                    fresh = await client.get_messages(
+                        chat_id=message.chat.id,
+                        message_ids=message.id,
+                        replies=0,
+                    )
+                    if fresh:
+                        message = fresh
+                except Exception as ref_err:
+                    log.warning(f"Failed to refresh message reference: {ref_err}")
+                await asyncio.sleep(delay)
+                continue
+            else:
+                log.error(
+                    f"Download failed after {config.max_retries} retries "
+                    f"(stale file reference): {dest_path.name}"
+                )
+                return False
 
         except Exception as e:
             # Transient errors: network issues, timeouts, etc.
