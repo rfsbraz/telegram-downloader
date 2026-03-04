@@ -1,0 +1,38 @@
+name: PR Test Instructions
+
+on:
+  pull_request:
+    types: [opened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post test instructions
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: test-instructions
+          message: |
+            ## Testing this PR
+
+            **Option 1 — Docker Compose override:**
+
+            Create a `docker-compose.override.yml`:
+            ```yaml
+            services:
+              telegram-downloader:
+                build: https://github.com/${{ github.repository }}.git#refs/pull/${{ github.event.pull_request.number }}/head
+            ```
+            Then run:
+            ```bash
+            docker compose up --build
+            ```
+
+            **Option 2 — Direct build and run:**
+            ```bash
+            docker build https://github.com/${{ github.repository }}.git#refs/pull/${{ github.event.pull_request.number }}/head -t telegram-downloader:pr-${{ github.event.pull_request.number }}
+            docker run --rm -it telegram-downloader:pr-${{ github.event.pull_request.number }}
+            ```

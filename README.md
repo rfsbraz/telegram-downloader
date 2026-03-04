@@ -225,3 +225,7 @@ MIT — see [LICENSE](LICENSE) for details.
 - [Pyrogram](https://docs.pyrogram.org/) — Telegram MTProto API framework
 - [Pydantic](https://docs.pydantic.dev/) — Data validation
 - [docker/metadata-action](https://github.com/docker/metadata-action) — Docker tagging
+
+## ☕ Support
+
+If you find this useful and want to support development, you can [buy me a coffee](https://buymeacoffee.com/rfsbraz) — no pressure at all, just a nice way to say thanks.
