@@ -4,8 +4,7 @@ updates:
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "daily"
     commit-message:
       prefix: "chore(deps)"
     labels:
@@ -13,20 +12,15 @@ updates:
       - "python"
     open-pull-requests-limit: 5
     groups:
-      # Group minor/patch updates together
-      python-minor:
+      python-packages:
         patterns:
           - "*"
-        update-types:
-          - "minor"
-          - "patch"
 
   # Docker base images
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "daily"
     commit-message:
       prefix: "chore(deps)"
     labels:
@@ -37,15 +31,13 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "daily"
     commit-message:
       prefix: "chore(deps)"
     labels:
       - "dependencies"
       - "github-actions"
     groups:
-      # Group all action updates together
       actions:
         patterns:
           - "*"
