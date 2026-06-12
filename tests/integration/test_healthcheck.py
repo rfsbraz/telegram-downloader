@@ -7,7 +7,7 @@ import subprocess
 import sys
 import os
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -26,7 +26,7 @@ class TestHealthcheckExitCodes:
     def test_healthy_status_exits_zero(self, temp_dir, monkeypatch):
         """Healthy status should exit with code 0."""
         health_file = temp_dir / "health_status.txt"
-        health_file.write_text(f"healthy\n{datetime.now().isoformat()}")
+        health_file.write_text(f"healthy\n{datetime.now(timezone.utc).isoformat()}")
 
         env = os.environ.copy()
         env["TDL_DAEMON_HEALTH_FILE"] = str(health_file)
@@ -44,7 +44,7 @@ class TestHealthcheckExitCodes:
     def test_starting_status_exits_zero(self, temp_dir, monkeypatch):
         """Starting status should also exit with code 0."""
         health_file = temp_dir / "health_status.txt"
-        health_file.write_text(f"starting\n{datetime.now().isoformat()}")
+        health_file.write_text(f"starting\n{datetime.now(timezone.utc).isoformat()}")
 
         env = os.environ.copy()
         env["TDL_DAEMON_HEALTH_FILE"] = str(health_file)
@@ -61,7 +61,7 @@ class TestHealthcheckExitCodes:
     def test_error_status_exits_one(self, temp_dir, monkeypatch):
         """Error status should exit with code 1."""
         health_file = temp_dir / "health_status.txt"
-        health_file.write_text(f"error\n{datetime.now().isoformat()}")
+        health_file.write_text(f"error\n{datetime.now(timezone.utc).isoformat()}")
 
         env = os.environ.copy()
         env["TDL_DAEMON_HEALTH_FILE"] = str(health_file)
@@ -99,7 +99,7 @@ class TestHealthcheckStaleness:
         health_file = temp_dir / "health_status.txt"
 
         # Timestamp more than 10 minutes ago
-        old_timestamp = datetime.now() - timedelta(minutes=15)
+        old_timestamp = datetime.now(timezone.utc) - timedelta(minutes=15)
         health_file.write_text(f"healthy\n{old_timestamp.isoformat()}")
 
         env = os.environ.copy()
@@ -114,6 +114,72 @@ class TestHealthcheckStaleness:
 
         assert result.returncode == 1
         assert "stale" in result.stderr.lower()
+
+
+class TestHealthcheckTimezones:
+    """Timezone handling in staleness detection."""
+
+    def test_legacy_naive_utc_timestamp_is_accepted(self, temp_dir, monkeypatch):
+        """Naive timestamps (old daemon format) are interpreted as UTC."""
+        health_file = temp_dir / "health_status.txt"
+
+        # Old daemons wrote datetime.utcnow().isoformat() (naive UTC)
+        naive_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+        health_file.write_text(f"healthy\n{naive_utc.isoformat()}")
+
+        env = os.environ.copy()
+        env["TDL_DAEMON_HEALTH_FILE"] = str(health_file)
+
+        result = subprocess.run(
+            [sys.executable, str(HEALTHCHECK_SCRIPT)],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+        assert result.returncode == 0
+
+    def test_fresh_aware_timestamp_not_stale_regardless_of_local_tz(
+        self, temp_dir, monkeypatch
+    ):
+        """An aware UTC timestamp written now must never read as stale."""
+        health_file = temp_dir / "health_status.txt"
+        health_file.write_text(
+            f"healthy\n{datetime.now(timezone.utc).isoformat()}"
+        )
+
+        env = os.environ.copy()
+        env["TDL_DAEMON_HEALTH_FILE"] = str(health_file)
+        # Force a non-UTC timezone for the healthcheck process
+        env["TZ"] = "Europe/Lisbon"
+
+        result = subprocess.run(
+            [sys.executable, str(HEALTHCHECK_SCRIPT)],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+        assert result.returncode == 0
+
+    def test_max_age_configurable_via_env(self, temp_dir, monkeypatch):
+        """TDL_DAEMON_HEALTH_MAX_AGE overrides the default staleness window."""
+        health_file = temp_dir / "health_status.txt"
+        old_timestamp = datetime.now(timezone.utc) - timedelta(minutes=15)
+        health_file.write_text(f"healthy\n{old_timestamp.isoformat()}")
+
+        env = os.environ.copy()
+        env["TDL_DAEMON_HEALTH_FILE"] = str(health_file)
+        env["TDL_DAEMON_HEALTH_MAX_AGE"] = "3600"
+
+        result = subprocess.run(
+            [sys.executable, str(HEALTHCHECK_SCRIPT)],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+        assert result.returncode == 0
 
 
 class TestHealthcheckFileFormat:
