@@ -92,6 +92,84 @@ class TestPendingDownloadsBasics:
             assert pending.count("src_1") == 0
 
 
+class TestPendingDownloadsAttempts:
+    """Attempt accounting and dead-lettering of repeatedly failing entries."""
+
+    def test_new_entries_have_zero_attempts(self, history_db):
+        """Fresh entries should be eligible regardless of max_attempts."""
+        with PendingDownloads(history_db) as pending:
+            pending.add_batch("src_1", [1, 2, 3])
+            assert pending.get_oldest("src_1", 10, max_attempts=1) == [1, 2, 3]
+
+    def test_increment_attempts(self, history_db):
+        """increment_attempts should only affect the given IDs."""
+        with PendingDownloads(history_db) as pending:
+            pending.add_batch("src_1", [1, 2, 3])
+            pending.increment_attempts("src_1", [2])
+
+            # ID 2 now has 1 attempt, excluded when max_attempts=1
+            assert pending.get_oldest("src_1", 10, max_attempts=1) == [1, 3]
+            # Still included with a higher limit
+            assert pending.get_oldest("src_1", 10, max_attempts=2) == [1, 2, 3]
+
+    def test_exhausted_entries_excluded_from_get_oldest(self, history_db):
+        """Entries at the attempt limit must not be scheduled again."""
+        with PendingDownloads(history_db) as pending:
+            pending.add_batch("src_1", [10, 20])
+            for _ in range(3):
+                pending.increment_attempts("src_1", [10])
+
+            assert pending.get_oldest("src_1", 10, max_attempts=3) == [20]
+            # Exhausted entry remains in the table
+            assert pending.count("src_1") == 2
+            assert pending.count("src_1", max_attempts=3) == 1
+            assert pending.count_exhausted("src_1", 3) == 1
+
+    def test_increment_attempts_empty_list_is_noop(self, history_db):
+        """Empty list should be a no-op."""
+        with PendingDownloads(history_db) as pending:
+            pending.add_batch("src_1", [1])
+            pending.increment_attempts("src_1", [])
+            assert pending.get_oldest("src_1", 10, max_attempts=1) == [1]
+
+    def test_increment_attempts_isolated_per_source(self, history_db):
+        """Attempts on one source must not affect another."""
+        with PendingDownloads(history_db) as pending:
+            pending.add_batch("src_a", [1])
+            pending.add_batch("src_b", [1])
+            pending.increment_attempts("src_a", [1])
+
+            assert pending.get_oldest("src_a", 10, max_attempts=1) == []
+            assert pending.get_oldest("src_b", 10, max_attempts=1) == [1]
+
+    def test_migrates_legacy_table_without_attempts_column(self, history_db):
+        """Databases created before the attempts column should be upgraded."""
+        import sqlite3
+
+        # Simulate a legacy database (no attempts column)
+        conn = sqlite3.connect(history_db)
+        conn.execute("""
+            CREATE TABLE pending_downloads (
+                cursor_key TEXT NOT NULL,
+                message_id INTEGER NOT NULL,
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (cursor_key, message_id)
+            )
+        """)
+        conn.execute(
+            "INSERT INTO pending_downloads (cursor_key, message_id) VALUES (?, ?)",
+            ("src_1", 42),
+        )
+        conn.commit()
+        conn.close()
+
+        with PendingDownloads(history_db) as pending:
+            # Legacy rows get attempts=0 and stay eligible
+            assert pending.get_oldest("src_1", 10, max_attempts=5) == [42]
+            pending.increment_attempts("src_1", [42])
+            assert pending.count_exhausted("src_1", 1) == 1
+
+
 class TestPendingDownloadsSourceIsolation:
     """Different cursor_keys should be independent."""
 
