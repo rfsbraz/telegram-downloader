@@ -121,6 +121,15 @@ class Config(BaseModel):
     global_filters: GlobalFilters = Field(default_factory=GlobalFilters)
     max_concurrent_downloads: int = Field(default=1, ge=1, le=10)
 
+    # Scheduling: only run download checks inside these windows (daemon mode).
+    # 24h format, comma-separated, may cross midnight: "02:00-08:00,22:00-23:59"
+    # Empty means no restriction.
+    schedule_active_hours: str = Field(default="")
+
+    # Bandwidth: cap aggregate download speed ("500KB", "5MB").
+    # Empty means unlimited.
+    max_download_speed: str = Field(default="")
+
     # Daemon mode configuration
     daemon: DaemonConfig = Field(default_factory=DaemonConfig)
 
@@ -150,6 +159,32 @@ class Config(BaseModel):
     def validate_sources(cls, v: list[SourceConfig]) -> list[SourceConfig]:
         """Ensure sources list is not empty if provided."""
         # Allow empty list for backward compatibility with legacy config
+        return v
+
+    @field_validator("schedule_active_hours")
+    @classmethod
+    def validate_schedule_active_hours(cls, v: str) -> str:
+        """Fail fast on malformed active-hours windows."""
+        if v:
+            # Function-level import to avoid a config <-> daemon import cycle
+            from src.daemon.schedule import parse_active_hours
+            try:
+                parse_active_hours(v)
+            except ValueError as e:
+                raise ValueError(str(e))
+        return v
+
+    @field_validator("max_download_speed")
+    @classmethod
+    def validate_max_download_speed(cls, v: str) -> str:
+        """Fail fast on malformed download speed values."""
+        if v:
+            # Function-level import to avoid a config <-> client import cycle
+            from src.client.ratelimit import parse_rate
+            try:
+                parse_rate(v)
+            except ValueError as e:
+                raise ValueError(str(e))
         return v
 
     @field_validator("api_hash")

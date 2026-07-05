@@ -8,6 +8,7 @@ from typing import Callable, Awaitable, Optional
 from pathlib import Path
 
 from src.daemon.health import HealthMonitor
+from src.daemon.schedule import parse_active_hours, is_within_active_hours
 from src.notifications.manager import NotificationManager
 
 logger = logging.getLogger(__name__)
@@ -45,7 +46,8 @@ class DaemonService:
         check_interval: int,
         health_file: Path,
         check_timeout: Optional[int] = None,
-        notification_manager: Optional[NotificationManager] = None
+        notification_manager: Optional[NotificationManager] = None,
+        active_hours: str = ""
     ):
         """
         Initialize daemon service.
@@ -56,11 +58,15 @@ class DaemonService:
             health_file: Path to health status file
             check_timeout: Optional timeout for check execution (None = no timeout)
             notification_manager: Optional notification manager for sending alerts
+            active_hours: Optional schedule windows ("02:00-08:00,22:00-23:59");
+                checks outside these windows are skipped. Empty = no restriction.
         """
         self.check_function = check_function
         self.check_interval = check_interval
         self.check_timeout = check_timeout
         self.notification_manager = notification_manager
+        self.active_hours = active_hours
+        self.active_windows = parse_active_hours(active_hours) if active_hours else []
         self.shutdown_event = asyncio.Event()
         self.health = HealthMonitor(health_file)
         self.log = logging.getLogger("daemon")
@@ -133,7 +139,20 @@ class DaemonService:
 
         Wraps check_function with error handling and health updates.
         Errors are logged but don't crash the daemon.
+
+        When active hours are configured, checks outside the windows are
+        skipped (the daemon stays alive and healthy). Downloads already in
+        flight when a window closes are never interrupted - the schedule
+        only gates the start of a check.
         """
+        # Schedule gate (issue #36)
+        if self.active_windows and not is_within_active_hours(self.active_windows):
+            self.log.info(
+                f"Outside active hours ({self.active_hours}), skipping check"
+            )
+            self.health.update_status("healthy")
+            return
+
         self.iteration += 1
         self.log.info(f"Starting periodic check (iteration {self.iteration})")
 
