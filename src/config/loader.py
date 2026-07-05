@@ -74,6 +74,8 @@ FLAT_FIELDS = {
     "log_file",
     "state_file",
     "verbosity",
+    "schedule_active_hours",
+    "max_download_speed",
     "max_concurrent_downloads",
     "max_downloads_per_run",
     "max_retries",
