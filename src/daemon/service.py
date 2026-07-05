@@ -141,28 +141,32 @@ class DaemonService:
         try:
             # Run check with optional timeout
             if self.check_timeout:
-                await asyncio.wait_for(
+                result = await asyncio.wait_for(
                     self.check_function(),
                     timeout=self.check_timeout
                 )
             else:
-                await self.check_function()
+                result = await self.check_function()
 
             # Check successful
             duration = time.time() - start_time
             self.log.info(f"Check complete (took {duration:.1f}s)")
             self.health.update_status("healthy")
 
-            # Send success notification
+            # Send success notification (include run summary when the check
+            # function returns one - see issue #34)
             if self.notification_manager:
+                details = {
+                    "iteration": self.iteration,
+                    "duration": f"{duration:.1f}s"
+                }
+                if isinstance(result, dict):
+                    details.update(result)
                 await self.notification_manager.notify(
                     level="success",
                     title="Download Check Complete",
                     message=f"Iteration {self.iteration} completed successfully",
-                    details={
-                        "iteration": self.iteration,
-                        "duration": f"{duration:.1f}s"
-                    }
+                    details=details
                 )
 
         except asyncio.TimeoutError:

@@ -15,6 +15,7 @@ foundation architecture.
 import asyncio
 import logging
 import sys
+import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
@@ -79,6 +80,18 @@ def setup_logging(log_file: str, verbosity: str) -> logging.Logger:
     return logging.getLogger("downloader")
 
 
+def format_bytes(num_bytes: int) -> str:
+    """Format a byte count as a human-readable string (e.g. '142.5 MB')."""
+    value = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if value < 1024 or unit == "TB":
+            if unit == "B":
+                return f"{int(value)} {unit}"
+            return f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} TB"
+
+
 async def download_batch(
     messages: list[Message],
     semaphore: asyncio.Semaphore,
@@ -108,16 +121,23 @@ async def download_batch(
         history: Optional download history for persistent deduplication
 
     Returns:
-        Tuple of (download_count, failed_message_ids).
+        Tuple of (stats, failed_message_ids).
+        stats is a counter dict: downloaded, skipped_duplicate, skipped_tracked,
+        skipped_error, bytes_downloaded.
         Failed IDs are messages where download_media_with_retry returned False.
         Skips (history hit, duplicate, path error) are NOT failures.
     """
-    downloaded = 0
+    stats = {
+        "downloaded": 0,
+        "skipped_duplicate": 0,
+        "skipped_tracked": 0,
+        "skipped_error": 0,
+        "bytes_downloaded": 0,
+    }
     failed_ids: set[int] = set()
 
     async def download_one(msg: Message) -> None:
         """Download single message with semaphore."""
-        nonlocal downloaded
 
         async with semaphore:  # Acquire semaphore slot
             # Extract media and filename
@@ -137,6 +157,7 @@ async def download_batch(
             if history and file_unique_id and history.contains(file_unique_id):
                 log.info(f"Skip (already downloaded): {fname}")
                 cursor_store.set(cursor_key, msg.id)
+                stats["skipped_tracked"] += 1
                 return
 
             # Build organized destination path (includes per-source folder and validation)
@@ -151,6 +172,7 @@ async def download_batch(
             except ValueError as e:
                 log.error(f"Path validation failed for {fname}: {e}")
                 cursor_store.set(cursor_key, msg.id)
+                stats["skipped_error"] += 1
                 return
 
             # Check for duplicates and resolve conflicts
@@ -158,6 +180,7 @@ async def download_batch(
                 if is_duplicate(dest, media_size):
                     log.info(f"Skip duplicate: {dest.name} (same size)")
                     cursor_store.set(cursor_key, msg.id)
+                    stats["skipped_duplicate"] += 1
                     return
                 # Different content, resolve conflict
                 original_dest = dest
@@ -167,6 +190,7 @@ async def download_batch(
                 except RuntimeError as e:
                     log.error(f"Cannot resolve conflict for {dest.name}: {e}")
                     cursor_store.set(cursor_key, msg.id)
+                    stats["skipped_error"] += 1
                     return
 
             # Download with retry logic
@@ -184,7 +208,8 @@ async def download_batch(
             )
 
             if success:
-                downloaded += 1
+                stats["downloaded"] += 1
+                stats["bytes_downloaded"] += media_size or 0
                 cursor_store.set(cursor_key, msg.id)
                 if history and file_unique_id:
                     history.record(file_unique_id, fname, media_size, cursor_key, msg.id)
@@ -197,7 +222,7 @@ async def download_batch(
         for msg in messages:
             tg.create_task(download_one(msg))
 
-    return downloaded, failed_ids
+    return stats, failed_ids
 
 
 async def startup_validation(cfg, log, client):
@@ -267,7 +292,21 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
         sources_with_filters: Pre-parsed list of (source, filter_config) tuples
         history: Optional DownloadHistory for persistent deduplication
         pending: Optional PendingDownloads queue for resumable downloads
+
+    Returns:
+        Run summary dict (sources checked, files downloaded/skipped/failed,
+        bytes downloaded, duration) for notification channels.
     """
+    run_started = time.monotonic()
+    totals = {
+        "downloaded": 0,
+        "skipped_duplicate": 0,
+        "skipped_tracked": 0,
+        "skipped_error": 0,
+        "bytes_downloaded": 0,
+    }
+    total_failed = 0
+
     # Create global concurrency control
     semaphore = asyncio.Semaphore(cfg.max_concurrent_downloads)
 
@@ -357,7 +396,7 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
                 f"total pending={pending.count(cursor_key)})"
             )
 
-            downloaded, failed_ids = await download_batch(
+            batch_stats, failed_ids = await download_batch(
                 candidates, semaphore, client, Path(cfg.download_dir),
                 state_store, cursor_key, cfg, log, source, source_config, history,
             )
@@ -365,7 +404,10 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
             # Remove from pending: orphaned + processed (everything except failures)
             remove_ids = orphaned_ids | (candidate_ids - failed_ids)
             pending.remove_batch(cursor_key, list(remove_ids))
-            total_downloaded += downloaded
+            total_downloaded += batch_stats["downloaded"]
+            total_failed += len(failed_ids)
+            for key in totals:
+                totals[key] += batch_stats[key]
 
             if max_downloads:
                 break  # Capped mode: one batch only
@@ -374,6 +416,40 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
         if remaining:
             log.info(f"{remaining} message(s) still pending for next run")
         log.info(f"Downloaded {total_downloaded} files")
+
+    # --- Run summary (issue #34) ---
+    duration = time.monotonic() - run_started
+    skipped_total = (
+        totals["skipped_duplicate"]
+        + totals["skipped_tracked"]
+        + totals["skipped_error"]
+    )
+    breakdown_parts = []
+    if totals["skipped_duplicate"]:
+        breakdown_parts.append(f"{totals['skipped_duplicate']} duplicate")
+    if totals["skipped_tracked"]:
+        breakdown_parts.append(f"{totals['skipped_tracked']} already tracked")
+    if totals["skipped_error"]:
+        breakdown_parts.append(f"{totals['skipped_error']} path error")
+    breakdown = f" ({', '.join(breakdown_parts)})" if breakdown_parts else ""
+
+    log.info("=" * 18 + " Run Summary " + "=" * 18)
+    log.info(f"Sources checked:    {len(sources_with_filters)}")
+    log.info(f"Files downloaded:   {totals['downloaded']}")
+    log.info(f"Files skipped:      {skipped_total}{breakdown}")
+    log.info(f"Files failed:       {total_failed}")
+    log.info(f"Bytes downloaded:   {format_bytes(totals['bytes_downloaded'])}")
+    log.info(f"Duration:           {duration:.1f}s")
+    log.info("=" * 49)
+
+    return {
+        "sources_checked": len(sources_with_filters),
+        "files_downloaded": totals["downloaded"],
+        "files_skipped": skipped_total,
+        "files_failed": total_failed,
+        "bytes_downloaded": format_bytes(totals["bytes_downloaded"]),
+        "duration": f"{duration:.1f}s",
+    }
 
 
 async def main():
@@ -472,7 +548,7 @@ async def main():
                 # Do NOT re-parse sources in run_check - reuse startup_validation result
                 async def check_wrapper():
                     """Wrapper for run_check that captures sources_with_filters."""
-                    await run_check(cfg, log, state_store, client, sources_with_filters, history, pending)
+                    return await run_check(cfg, log, state_store, client, sources_with_filters, history, pending)
 
                 service = DaemonService(
                     check_function=check_wrapper,
