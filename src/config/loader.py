@@ -230,6 +230,22 @@ def _load_from_env() -> dict | None:
         # Fallback: treat as simple key
         data[key_path] = parsed_value
 
+    # Compact the sources list: gaps in TDL_SOURCES_N_* numbering (e.g. a
+    # commented-out source in the middle) leave empty placeholder entries
+    # behind, which would otherwise fail validation with a confusing
+    # "Either url or chat_id must be provided" error. Drop them and keep
+    # the remaining sources in their original order.
+    if "sources" in data:
+        original_count = len(data["sources"])
+        data["sources"] = [s for s in data["sources"] if s]
+        dropped = original_count - len(data["sources"])
+        if dropped:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Ignoring {dropped} gap(s) in TDL_SOURCES_N_* numbering; "
+                f"{len(data['sources'])} source(s) configured"
+            )
+
     return data
 
 

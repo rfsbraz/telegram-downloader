@@ -121,6 +121,31 @@ class TestLoadFromEnv:
         assert result["sources"][0]["url"] == "https://t.me/channel1"
         assert result["sources"][1]["url"] == "https://t.me/channel2"
 
+    def test_sources_array_with_gap(self, clean_env, monkeypatch):
+        """Gaps in source numbering should be compacted, not left as empty entries."""
+        monkeypatch.setenv("TDL_API_ID", "12345")
+        monkeypatch.setenv("TDL_API_HASH", "abc123")
+        monkeypatch.setenv("TDL_SOURCES_0_URL", "https://t.me/channel1")
+        # Source 1 disabled/commented out - gap in numbering
+        monkeypatch.setenv("TDL_SOURCES_2_URL", "https://t.me/channel3")
+
+        result = _load_from_env()
+        assert len(result["sources"]) == 2
+        assert result["sources"][0]["url"] == "https://t.me/channel1"
+        assert result["sources"][1]["url"] == "https://t.me/channel3"
+
+    def test_sources_array_one_based(self, clean_env, monkeypatch):
+        """1-based source numbering should work (index 0 pad entry dropped)."""
+        monkeypatch.setenv("TDL_API_ID", "12345")
+        monkeypatch.setenv("TDL_API_HASH", "abc123")
+        monkeypatch.setenv("TDL_SOURCES_1_URL", "https://t.me/channel1")
+        monkeypatch.setenv("TDL_SOURCES_2_URL", "https://t.me/channel2")
+
+        result = _load_from_env()
+        assert len(result["sources"]) == 2
+        assert result["sources"][0]["url"] == "https://t.me/channel1"
+        assert result["sources"][1]["url"] == "https://t.me/channel2"
+
     def test_sources_with_filters(self, clean_env, monkeypatch):
         """Source filters should be parsed correctly."""
         monkeypatch.setenv("TDL_API_ID", "12345")
