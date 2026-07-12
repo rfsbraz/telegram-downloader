@@ -259,9 +259,23 @@ async def startup_validation(cfg, log, client):
     # Without this, numeric chat IDs from t.me/c/ links fail with PEER_ID_INVALID
     log.info("Loading chat list to populate peer cache...")
     dialog_count = 0
-    async for _ in client.get_dialogs():
-        dialog_count += 1
-    log.debug(f"Loaded {dialog_count} dialogs into peer cache")
+    try:
+        async for _ in client.get_dialogs():
+            dialog_count += 1
+        log.debug(f"Loaded {dialog_count} dialogs into peer cache")
+    except Exception as e:
+        # Pyrogram can crash while parsing certain dialogs (e.g.
+        # "'NoneType' object has no attribute 'id'" on dialogs whose peer
+        # can't be resolved - see issue #47). The dialogs iterated before
+        # the failure are already cached, so degrade to a warning instead
+        # of taking the whole app down: only sources configured via
+        # private t.me/c/ links that weren't cached yet would be affected,
+        # and those will surface a clear per-source error later.
+        log.warning(
+            f"Chat list loading failed after {dialog_count} dialog(s): {e}. "
+            f"Continuing with a partial peer cache; sources configured via "
+            f"private t.me/c/ links may fail to resolve this run."
+        )
 
     # Parse and validate sources (BLOCKER 3 FIX: parse once, return result)
     log.info("Validating configured sources...")
