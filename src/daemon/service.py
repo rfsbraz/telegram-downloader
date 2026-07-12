@@ -39,6 +39,8 @@ class DaemonService:
         during startup will fail-fast and prevent daemon from starting.
     """
 
+    HEARTBEAT_INTERVAL = 60  # seconds between health file timestamp refreshes
+
     def __init__(
         self,
         check_function: Callable[[], Awaitable[None]],
@@ -65,6 +67,7 @@ class DaemonService:
         self.health = HealthMonitor(health_file)
         self.log = logging.getLogger("daemon")
         self.iteration = 0
+        self._heartbeat_task: Optional[asyncio.Task] = None
 
     async def startup(self):
         """
@@ -240,6 +243,25 @@ class DaemonService:
                     }
                 )
 
+    async def _heartbeat_loop(self):
+        """
+        Refresh the health file timestamp at a fixed interval.
+
+        Runs for the daemon's entire lifetime so the health file stays fresh
+        both during long check iterations and while sleeping between checks.
+        Without this, any check_interval (or single check) longer than the
+        healthcheck staleness window would mark a healthy daemon unhealthy.
+        """
+        while not self.shutdown_event.is_set():
+            try:
+                await asyncio.wait_for(
+                    self.shutdown_event.wait(),
+                    timeout=self.HEARTBEAT_INTERVAL
+                )
+                break  # Shutdown triggered
+            except asyncio.TimeoutError:
+                self.health.heartbeat()
+
     async def periodic_loop(self):
         """
         Main daemon loop with periodic execution.
@@ -321,10 +343,15 @@ class DaemonService:
             # Startup initialization and validation
             await self.startup()
 
+            # Keep health file timestamp fresh during and between checks
+            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+
             # Main periodic loop
             await self.periodic_loop()
 
         finally:
+            if self._heartbeat_task and not self._heartbeat_task.done():
+                self._heartbeat_task.cancel()
             # Ensure cleanup happens even if exceptions occur
             if not self.shutdown_event.is_set():
                 await self.shutdown()
