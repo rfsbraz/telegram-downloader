@@ -5,6 +5,21 @@
 
 * add missing dependency ([4542021](https://github.com/rfsbraz/telegram-downloader/commit/454202198134f12a4e8561bde262b69cad10035b))
 
+## [1.3.0](https://github.com/rfsbraz/telegram-downloader/compare/v1.2.1...v1.3.0) (2026-07-12)
+
+
+### Features
+
+* **stats:** log run summary at end of each check ([#54](https://github.com/rfsbraz/telegram-downloader/issues/54)) ([91c582e](https://github.com/rfsbraz/telegram-downloader/commit/91c582eba179ad2584afcfa8b448a7899ca26b52))
+
+
+### Bug Fixes
+
+* **config:** tolerate gaps in TDL_SOURCES_N numbering ([#51](https://github.com/rfsbraz/telegram-downloader/issues/51)) ([10f78a0](https://github.com/rfsbraz/telegram-downloader/commit/10f78a070ba13ee10563c4591b92e4926af5aae4))
+* **daemon:** timezone-aware health timestamps and heartbeat ([#48](https://github.com/rfsbraz/telegram-downloader/issues/48)) ([b50393d](https://github.com/rfsbraz/telegram-downloader/commit/b50393d0f2735a8293e3174b7f3e80f5fab16662))
+* **sources:** skip unresolvable sources instead of crash-looping ([#52](https://github.com/rfsbraz/telegram-downloader/issues/52)) ([a163750](https://github.com/rfsbraz/telegram-downloader/commit/a163750cb943d56805560a636fc63344212441a8))
+* **startup:** survive pyrogram dialog parsing crash during peer cache load ([#53](https://github.com/rfsbraz/telegram-downloader/issues/53)) ([94c2282](https://github.com/rfsbraz/telegram-downloader/commit/94c2282d74e4212e4770db0d8f2cb151297610c0))
+
 ## [1.2.1](https://github.com/rfsbraz/telegram-downloader/compare/v1.2.0...v1.2.1) (2026-03-04)
 
 
