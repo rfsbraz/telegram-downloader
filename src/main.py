@@ -210,14 +210,14 @@ async def startup_validation(cfg, log, client):
     - Source accessibility (parse_sources + validate_source_access)
 
     Returns:
-        sources_with_filters: List of (source, filter_config) tuples for run_check
+        sources_with_filters: List of (source, filter, source_config) tuples
+        for run_check. Sources that cannot be resolved or accessed are
+        skipped with an error log (issue #40); startup only fails if NO
+        source is usable.
 
     Raises:
-        ConfigError: Configuration validation failed
-        RuntimeError: Telegram auth or source access failed
-
-    BLOCKER 2 FIX: validate_source_access() exceptions propagate unchanged.
-    RuntimeError indicates source inaccessibility (fail-fast behavior).
+        ConfigError: Configuration validation failed or no usable sources
+        RuntimeError: Telegram auth failed
 
     BLOCKER 3 FIX: Parse sources once here, return sources_with_filters.
     main() stores result and passes to run_check via closure.
@@ -241,13 +241,21 @@ async def startup_validation(cfg, log, client):
     # Parse and validate sources (BLOCKER 3 FIX: parse once, return result)
     log.info("Validating configured sources...")
     sources_with_filters = await parse_sources(cfg, client)
-    sources = [s for s, _ in sources_with_filters]
+    sources_with_filters = await validate_source_access(sources_with_filters, client)
 
-    # BLOCKER 2 FIX: Let validate_source_access exceptions propagate
-    # RuntimeError from validate_source_access indicates source inaccessibility
-    # This is fail-fast behavior - startup should fail if sources are inaccessible
-    await validate_source_access(sources, client)
-    log.info(f"All {len(sources)} source(s) accessible")
+    configured = len(cfg.sources)
+    usable = len(sources_with_filters)
+    if usable == 0:
+        raise ConfigError(
+            f"None of the {configured} configured source(s) are accessible. "
+            f"Check the errors above and fix your configuration."
+        )
+    if usable < configured:
+        log.warning(
+            f"{configured - usable} of {configured} source(s) skipped as "
+            f"unresolvable/inaccessible - see errors above"
+        )
+    log.info(f"{usable} source(s) accessible")
 
     return sources_with_filters
 
@@ -264,22 +272,15 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
         log: Logger instance
         state_store: CursorStore instance
         client: Pyrogram client instance
-        sources_with_filters: Pre-parsed list of (source, filter_config) tuples
+        sources_with_filters: Pre-parsed list of (source, filter, source_config) tuples
         history: Optional DownloadHistory for persistent deduplication
         pending: Optional PendingDownloads queue for resumable downloads
     """
     # Create global concurrency control
     semaphore = asyncio.Semaphore(cfg.max_concurrent_downloads)
 
-    # Build mapping: cursor_key -> source_config for folder naming
-    source_config_map: dict[str, SourceConfig] = {}
-    for idx, (source, _) in enumerate(sources_with_filters):
-        cursor_key = source.get_cursor_key()
-        # Use same index to get corresponding source config
-        source_config_map[cursor_key] = cfg.sources[idx]
-
     # Iterate sources sequentially (config order = priority)
-    for source, composite_filter in sources_with_filters:
+    for source, composite_filter, source_config in sources_with_filters:
         cursor_key = source.get_cursor_key()
         last_seen_id = state_store.get(cursor_key, 0)
 
@@ -291,12 +292,6 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
         log.info("=" * 60)
 
         max_downloads = cfg.max_downloads_per_run or 0
-
-        # Look up source_config early (needed for download_batch)
-        source_config = source_config_map.get(cursor_key)
-        if source_config is None:
-            log.error(f"No source config found for cursor key: {cursor_key}")
-            continue
 
         # --- Scan phase: stream IDs into pending ---
         if pending and pending.has_pending(cursor_key):
