@@ -113,6 +113,11 @@ class Config(BaseModel):
     # Download tracking
     track_downloads: bool = Field(default=True)
 
+    # Post-download hook: shell command run after each successful download.
+    # Supports placeholders: {file}, {dir}, {filename}, {extension}, {source}, {size}
+    post_download_hook: Optional[str] = None
+    post_download_hook_timeout: int = Field(default=300, ge=1, le=86400)
+
     # Logging
     verbosity: Literal["quiet", "normal", "verbose"] = Field(default="normal")
 
