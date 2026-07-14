@@ -54,6 +54,20 @@ class TestCursorStoreBasics:
             store.set("test_source", 200)
             assert store.get("test_source") == 200
 
+    def test_set_is_monotonic(self, memory_db):
+        """set() must never move the cursor backwards.
+
+        Concurrent downloads complete out of order; a lower message ID
+        finishing last must not regress the cursor.
+        """
+        with CursorStore(memory_db) as store:
+            store.set("test_source", 300)
+            store.set("test_source", 100)
+            assert store.get("test_source") == 300
+
+            store.set("test_source", 400)
+            assert store.get("test_source") == 400
+
     def test_multiple_sources(self, memory_db):
         """Should handle multiple source keys independently."""
         with CursorStore(memory_db) as store:
