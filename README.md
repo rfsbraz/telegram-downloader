@@ -108,6 +108,22 @@ All configuration is done via environment variables with the `TDL_` prefix. See 
 - TDL_DAEMON_CHECK_INTERVAL=300  # seconds between checks
 ```
 
+### Post-Download Hook
+
+Run a command after each successful download - extract archives, convert
+formats, trigger library scans, move files to watch folders:
+
+```yaml
+- TDL_POST_DOWNLOAD_HOOK=unrar x "{file}" "{dir}"
+- TDL_POST_DOWNLOAD_HOOK_TIMEOUT=300  # seconds, default 300
+```
+
+Available placeholders: `{file}` (absolute path), `{dir}` (parent directory),
+`{filename}`, `{extension}`, `{source}` (source display name), `{size}` (bytes).
+
+The command runs without a shell (filenames can't inject arguments) and a
+hook failure never marks the download as failed.
+
 ### Notifications
 
 ```yaml

@@ -30,6 +30,7 @@ from src.organization import build_destination_path, is_duplicate, resolve_confl
 from src.sources.base import BaseSource
 from src.state import CursorStore, DownloadHistory, PendingDownloads
 from src.client import create_client, download_media_with_retry
+from src.client.hooks import run_post_download_hook
 from src.notifications import NotificationManager, DiscordNotifier, GenericWebhook
 
 
@@ -213,6 +214,20 @@ async def download_batch(
                 cursor_store.set(cursor_key, msg.id)
                 if history and file_unique_id:
                     history.record(file_unique_id, fname, media_size, cursor_key, msg.id)
+
+                # Post-download hook (issue #35) - failures are logged but
+                # never mark the download as failed (the file is already saved)
+                if config.post_download_hook:
+                    source_name = source_config.name or await source.get_display_name()
+                    actual_size = dest.stat().st_size if dest.exists() else media_size
+                    await run_post_download_hook(
+                        config.post_download_hook,
+                        dest,
+                        source_name,
+                        actual_size,
+                        config.post_download_hook_timeout,
+                        log,
+                    )
             else:
                 log.error(f"Failed to download: {dest.name}")
                 failed_ids.add(msg.id)

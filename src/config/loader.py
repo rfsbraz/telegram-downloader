@@ -61,7 +61,7 @@ INT_FIELDS = {
 }
 
 # Field name endings that indicate integers (for nested fields)
-INT_SUFFIXES = {"_id", "_interval", "_seconds", "_downloads", "_retries", "_delay"}
+INT_SUFFIXES = {"_id", "_interval", "_seconds", "_downloads", "_retries", "_delay", "_timeout"}
 
 # Top-level fields that should NOT be nested (underscore is part of name)
 FLAT_FIELDS = {
@@ -87,6 +87,8 @@ FLAT_FIELDS = {
     "allow_archives",
     "archive_exts",
     "track_downloads",
+    "post_download_hook",
+    "post_download_hook_timeout",
 }
 
 # Two-level nested fields (parent_child format)
