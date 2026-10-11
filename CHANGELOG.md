@@ -5,6 +5,13 @@
 
 * add missing dependency ([4542021](https://github.com/rfsbraz/telegram-downloader/commit/454202198134f12a4e8561bde262b69cad10035b))
 
+## [1.3.1](https://github.com/rfsbraz/telegram-downloader/compare/v1.3.0...v1.3.1) (2026-10-11)
+
+
+### Bug Fixes
+
+* **security:** preserve non-Latin characters in sanitized file names ([#79](https://github.com/rfsbraz/telegram-downloader/issues/79)) ([88d9849](https://github.com/rfsbraz/telegram-downloader/commit/88d9849fca74dfc8a6ee954a4fa83bd516674a68))
+
 ## [1.3.0](https://github.com/rfsbraz/telegram-downloader/compare/v1.2.1...v1.3.0) (2026-07-12)
 
 
