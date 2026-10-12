@@ -84,9 +84,12 @@ class CursorStore:
         return row[0] if row else default
 
     def set(self, source_key: str, message_id: int) -> None:
-        """Set cursor value for a source with atomic transaction.
+        """Advance cursor value for a source with atomic transaction.
 
-        Uses UPSERT (INSERT OR REPLACE) to handle both new and existing keys.
+        The cursor is monotonic: setting a value lower than the stored one is
+        a no-op. Downloads complete out of order under concurrency, so without
+        this guard the last writer would win and the cursor could move
+        backwards, causing already-processed messages to be rescanned.
         Implements retry logic for database locking errors.
 
         Args:
@@ -109,7 +112,7 @@ class CursorStore:
                     INSERT INTO cursors (source_key, last_message_id, updated_at)
                     VALUES (?, ?, CURRENT_TIMESTAMP)
                     ON CONFLICT(source_key) DO UPDATE SET
-                        last_message_id = excluded.last_message_id,
+                        last_message_id = MAX(last_message_id, excluded.last_message_id),
                         updated_at = CURRENT_TIMESTAMP
                 """, (source_key, message_id))
                 self._connection.commit()

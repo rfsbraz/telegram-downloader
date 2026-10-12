@@ -43,6 +43,87 @@ def client():
     return AsyncMock()
 
 
+class TestConcurrencySafety:
+    """Temp file uniqueness and rename-time conflict handling."""
+
+    @pytest.mark.asyncio
+    async def test_partial_file_name_includes_message_id(
+        self, client, message, dest_path, log
+    ):
+        """Temp files must be unique per message so concurrent downloads of
+        same-named files never share a .partial file."""
+        config = make_config(max_retries=1)
+        seen_paths = []
+
+        async def fake_download(msg, file_name, progress=None):
+            seen_paths.append(file_name)
+            p = Path(file_name)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(b"content")
+
+        client.download_media = AsyncMock(side_effect=fake_download)
+
+        result = await download_media_with_retry(
+            client, message, dest_path, config, log
+        )
+
+        assert result is True
+        assert f".{message.id}.partial" in seen_paths[0]
+
+    @pytest.mark.asyncio
+    async def test_same_size_file_at_rename_is_skipped_as_duplicate(
+        self, client, message, dest_path, log
+    ):
+        """If an identical file appeared at dest during download, keep it."""
+        config = make_config(max_retries=1)
+
+        async def fake_download(msg, file_name, progress=None):
+            p = Path(file_name)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(b"same content")
+            # Simulate a concurrent task completing the same file first
+            dest_path.write_bytes(b"same content")
+
+        client.download_media = AsyncMock(side_effect=fake_download)
+
+        result = await download_media_with_retry(
+            client, message, dest_path, config, log
+        )
+
+        assert result is True
+        assert dest_path.read_bytes() == b"same content"
+        # No conflict copy created
+        assert not (dest_path.parent / "test_file_2.pdf").exists()
+        # Temp file cleaned up
+        assert not list(dest_path.parent.glob("*.partial"))
+
+    @pytest.mark.asyncio
+    async def test_different_file_at_rename_resolves_conflict(
+        self, client, message, dest_path, log
+    ):
+        """If a different file appeared at dest during download, keep both."""
+        config = make_config(max_retries=1)
+
+        async def fake_download(msg, file_name, progress=None):
+            p = Path(file_name)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(b"new download content")
+            # Simulate a concurrent task writing a different file to dest
+            dest_path.write_bytes(b"other")
+
+        client.download_media = AsyncMock(side_effect=fake_download)
+
+        result = await download_media_with_retry(
+            client, message, dest_path, config, log
+        )
+
+        assert result is True
+        assert dest_path.read_bytes() == b"other"
+        conflict_copy = dest_path.parent / "test_file_2.pdf"
+        assert conflict_copy.exists()
+        assert conflict_copy.read_bytes() == b"new download content"
+
+
 class TestZeroByteValidation:
     """Tests for zero-byte download detection and retry."""
 
