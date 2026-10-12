@@ -30,6 +30,7 @@ from src.organization import build_destination_path, is_duplicate, resolve_confl
 from src.sources.base import BaseSource
 from src.state import CursorStore, DownloadHistory, PendingDownloads
 from src.client import create_client, download_media_with_retry
+from src.client.ratelimit import RateLimiter, parse_rate
 from src.notifications import NotificationManager, DiscordNotifier, GenericWebhook
 
 
@@ -104,6 +105,7 @@ async def download_batch(
     source: BaseSource,
     source_config: SourceConfig,
     history: "DownloadHistory | None" = None,
+    limiter: "RateLimiter | None" = None,
 ) -> tuple[int, set[int]]:
     """Download a batch of messages concurrently with semaphore limit.
 
@@ -119,6 +121,7 @@ async def download_batch(
         source: Source object for this batch
         source_config: Source configuration for folder naming
         history: Optional download history for persistent deduplication
+        limiter: Optional shared RateLimiter capping aggregate download speed
 
     Returns:
         Tuple of (stats, failed_message_ids).
@@ -205,6 +208,7 @@ async def download_batch(
                 config,
                 log,
                 expected_size=media_size,
+                limiter=limiter,
             )
 
             if success:
@@ -299,7 +303,7 @@ async def startup_validation(cfg, log, client):
     return sources_with_filters
 
 
-async def run_check(cfg, log, state_store, client, sources_with_filters, history=None, pending=None):
+async def run_check(cfg, log, state_store, client, sources_with_filters, history=None, pending=None, limiter=None):
     """
     Single check iteration - process all configured sources.
 
@@ -314,6 +318,7 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
         sources_with_filters: Pre-parsed list of (source, filter, source_config) tuples
         history: Optional DownloadHistory for persistent deduplication
         pending: Optional PendingDownloads queue for resumable downloads
+        limiter: Optional shared RateLimiter capping aggregate download speed
 
     Returns:
         Run summary dict (sources checked, files downloaded/skipped/failed,
@@ -408,6 +413,7 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
             batch_stats, failed_ids = await download_batch(
                 candidates, semaphore, client, Path(cfg.download_dir),
                 state_store, cursor_key, cfg, log, source, source_config, history,
+                limiter,
             )
 
             # Remove from pending: orphaned + processed (everything except failures)
@@ -506,6 +512,12 @@ async def main():
         log.warning("Note: Test servers require test phone numbers (99966XXXXXX)")
         log.warning("=" * 60)
 
+    # Optional bandwidth cap shared by all downloads (issue #36)
+    limiter = None
+    if cfg.max_download_speed:
+        limiter = RateLimiter(parse_rate(cfg.max_download_speed))
+        log.info(f"Download speed capped at {cfg.max_download_speed}/s")
+
     # Create Pyrogram client
     client = create_client(cfg)
 
@@ -557,20 +569,21 @@ async def main():
                 # Do NOT re-parse sources in run_check - reuse startup_validation result
                 async def check_wrapper():
                     """Wrapper for run_check that captures sources_with_filters."""
-                    return await run_check(cfg, log, state_store, client, sources_with_filters, history, pending)
+                    return await run_check(cfg, log, state_store, client, sources_with_filters, history, pending, limiter)
 
                 service = DaemonService(
                     check_function=check_wrapper,
                     check_interval=cfg.daemon.check_interval,
                     health_file=Path(cfg.daemon.health_file),
-                    notification_manager=notification_manager
+                    notification_manager=notification_manager,
+                    active_hours=cfg.schedule_active_hours
                 )
 
                 # Run daemon
                 await service.run()
             else:
                 log.info("Running in single-shot mode")
-                await run_check(cfg, log, state_store, client, sources_with_filters, history, pending)
+                await run_check(cfg, log, state_store, client, sources_with_filters, history, pending, limiter)
     finally:
         # Cleanup
         if history:

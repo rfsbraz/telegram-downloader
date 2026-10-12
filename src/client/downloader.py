@@ -18,6 +18,7 @@ from pyrogram.types import Message
 from pyrogram.errors import FloodWait, FileReferenceExpired
 
 from src.config.schema import Config
+from src.client.ratelimit import RateLimiter
 
 
 async def download_media_with_retry(
@@ -27,6 +28,7 @@ async def download_media_with_retry(
     config: Config,
     log: logging.Logger,
     expected_size: int = 0,
+    limiter: "RateLimiter | None" = None,
 ) -> bool:
     """Download media with streaming, retry logic, and FloodWait handling.
 
@@ -54,6 +56,7 @@ async def download_media_with_retry(
         config: Configuration with retry settings
         log: Logger instance for progress/error reporting
         expected_size: Expected file size in bytes (for logging context)
+        limiter: Optional shared RateLimiter capping aggregate download speed
 
     Returns:
         True if download succeeded, False if all retries exhausted
@@ -73,8 +76,10 @@ async def download_media_with_retry(
     # Use temporary .partial file during download
     dest_temp = dest_path.with_suffix(dest_path.suffix + ".partial")
 
-    # Progress callback for streaming (writes chunks without buffering entire file)
-    def progress_callback(current: int, total: int) -> None:
+    # Track cumulative progress so the rate limiter sees byte deltas
+    progress_state = {"last": 0}
+
+    def _log_progress(current: int, total: int) -> None:
         """Log download progress at intervals."""
         if total > 0:
             percent = (current / total) * 100
@@ -82,8 +87,23 @@ async def download_media_with_retry(
             if int(percent) % 10 == 0 and int(percent) > 0:
                 log.debug(f"Download progress: {percent:.1f}% ({current}/{total} bytes)")
 
+    if limiter:
+        # Async callback: pyrogram awaits coroutine progress callbacks, so
+        # the limiter can sleep without blocking the event loop
+        async def progress_callback(current: int, total: int) -> None:
+            delta = current - progress_state["last"]
+            progress_state["last"] = current
+            if delta > 0:
+                await limiter.throttle(delta)
+            _log_progress(current, total)
+    else:
+        def progress_callback(current: int, total: int) -> None:
+            _log_progress(current, total)
+
     # Main download loop with retry logic
     for attempt in range(1, config.max_retries + 1):
+        # Each attempt restarts the transfer from zero
+        progress_state["last"] = 0
         try:
             # Stream download to temporary file
             await client.download_media(
