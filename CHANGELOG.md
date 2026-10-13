@@ -5,6 +5,13 @@
 
 * add missing dependency ([4542021](https://github.com/rfsbraz/telegram-downloader/commit/454202198134f12a4e8561bde262b69cad10035b))
 
+## [1.4.0](https://github.com/rfsbraz/telegram-downloader/compare/v1.3.1...v1.4.0) (2026-10-12)
+
+
+### Features
+
+* **daemon:** download scheduling windows and bandwidth throttling ([#56](https://github.com/rfsbraz/telegram-downloader/issues/56)) ([03d0d59](https://github.com/rfsbraz/telegram-downloader/commit/03d0d59bb2a887ece92c6eba5fd9dee687c82361))
+
 ## [1.3.1](https://github.com/rfsbraz/telegram-downloader/compare/v1.3.0...v1.3.1) (2026-10-11)
 
 
