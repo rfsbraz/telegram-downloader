@@ -5,6 +5,13 @@
 
 * add missing dependency ([4542021](https://github.com/rfsbraz/telegram-downloader/commit/454202198134f12a4e8561bde262b69cad10035b))
 
+## [1.4.1](https://github.com/rfsbraz/telegram-downloader/compare/v1.4.0...v1.4.1) (2026-10-14)
+
+
+### Bug Fixes
+
+* **downloader:** respect FloodWait swallowed by pyrogram and keep retry budget ([#84](https://github.com/rfsbraz/telegram-downloader/issues/84)) ([0571294](https://github.com/rfsbraz/telegram-downloader/commit/0571294207ff2a5ec6fa7776e91f4eaf671f5f0d))
+
 ## [1.4.0](https://github.com/rfsbraz/telegram-downloader/compare/v1.3.1...v1.4.0) (2026-10-12)
 
 
