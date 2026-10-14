@@ -19,7 +19,7 @@ Solutions for common errors and issues.
 
     **Cause:** Telegram rate limiting (too many API requests).
 
-    **Automatic Handling:** Daemon retries automatically after wait time with exponential backoff.
+    **Automatic Handling:** Downloads wait the time Telegram asks for, plus 5 seconds, then retry the same file. Other downloads pause until the wait ends. A FloodWait does not use up a retry. This also covers FloodWaits that Pyrogram logs instead of raising, for example during `auth.ExportAuthorization` when a file lives on another data center.
 
 !!! tip "Reduce FloodWait Frequency"
     If FloodWait errors are persistent:
