@@ -56,9 +56,17 @@ class PendingDownloads:
                 cursor_key TEXT NOT NULL,
                 message_id INTEGER NOT NULL,
                 added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                attempts INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (cursor_key, message_id)
             )
         """)
+        # Migrate databases created before the attempts column existed
+        try:
+            self._connection.execute(
+                "ALTER TABLE pending_downloads ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0"
+            )
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         self._connection.commit()
 
     def _check_connection(self) -> None:
@@ -106,12 +114,17 @@ class PendingDownloads:
 
         raise StateError(f"Failed to add batch after {max_retries} retries (database locked)")
 
-    def get_oldest(self, cursor_key: str, limit: int) -> list[int]:
+    def get_oldest(
+        self, cursor_key: str, limit: int, max_attempts: Optional[int] = None
+    ) -> list[int]:
         """Get the oldest pending message IDs for a source.
 
         Args:
             cursor_key: Source cursor key
             limit: Maximum number of IDs to return
+            max_attempts: If set, exclude entries with attempts >= max_attempts
+                (exhausted entries stay in the table for inspection but are
+                no longer scheduled for download)
 
         Returns:
             List of message IDs ordered ascending (oldest first)
@@ -120,12 +133,78 @@ class PendingDownloads:
             StateError: If database operation fails
         """
         self._check_connection()
-        cursor = self._connection.execute(
-            "SELECT message_id FROM pending_downloads "
-            "WHERE cursor_key = ? ORDER BY message_id ASC LIMIT ?",
-            (cursor_key, limit),
-        )
+        if max_attempts is not None:
+            cursor = self._connection.execute(
+                "SELECT message_id FROM pending_downloads "
+                "WHERE cursor_key = ? AND attempts < ? "
+                "ORDER BY message_id ASC LIMIT ?",
+                (cursor_key, max_attempts, limit),
+            )
+        else:
+            cursor = self._connection.execute(
+                "SELECT message_id FROM pending_downloads "
+                "WHERE cursor_key = ? ORDER BY message_id ASC LIMIT ?",
+                (cursor_key, limit),
+            )
         return [row[0] for row in cursor.fetchall()]
+
+    def increment_attempts(self, cursor_key: str, message_ids: list[int]) -> None:
+        """Increment the attempt counter for failed downloads.
+
+        Args:
+            cursor_key: Source cursor key
+            message_ids: List of message IDs that failed to download
+
+        Raises:
+            StateError: If database operation fails
+        """
+        self._check_connection()
+        if not message_ids:
+            return
+
+        max_retries = 3
+        delays = [0.1, 0.2, 0.4]
+
+        for attempt in range(max_retries):
+            try:
+                self._connection.execute("BEGIN")
+                placeholders = ",".join("?" * len(message_ids))
+                self._connection.execute(
+                    f"UPDATE pending_downloads SET attempts = attempts + 1 "
+                    f"WHERE cursor_key = ? AND message_id IN ({placeholders})",
+                    [cursor_key] + list(message_ids),
+                )
+                self._connection.commit()
+                return
+            except sqlite3.OperationalError as e:
+                self._connection.rollback()
+                if "database is locked" in str(e).lower() and attempt < max_retries - 1:
+                    time.sleep(delays[attempt])
+                    continue
+                raise StateError(f"Database operation failed: {e}")
+            except Exception as e:
+                self._connection.rollback()
+                raise StateError(f"Unexpected error during increment_attempts: {e}")
+
+        raise StateError(f"Failed to increment attempts after {max_retries} retries (database locked)")
+
+    def count_exhausted(self, cursor_key: str, max_attempts: int) -> int:
+        """Count entries that exceeded the attempt limit (dead-lettered).
+
+        Args:
+            cursor_key: Source cursor key
+            max_attempts: Attempt limit
+
+        Returns:
+            Number of entries with attempts >= max_attempts
+        """
+        self._check_connection()
+        cursor = self._connection.execute(
+            "SELECT COUNT(*) FROM pending_downloads "
+            "WHERE cursor_key = ? AND attempts >= ?",
+            (cursor_key, max_attempts),
+        )
+        return cursor.fetchone()[0]
 
     def remove_batch(self, cursor_key: str, message_ids: list[int]) -> None:
         """Remove processed message IDs from the pending queue.
@@ -166,20 +245,29 @@ class PendingDownloads:
 
         raise StateError(f"Failed to remove batch after {max_retries} retries (database locked)")
 
-    def count(self, cursor_key: str) -> int:
+    def count(self, cursor_key: str, max_attempts: Optional[int] = None) -> int:
         """Count pending message IDs for a source.
 
         Args:
             cursor_key: Source cursor key
+            max_attempts: If set, count only entries still eligible for
+                download (attempts < max_attempts)
 
         Returns:
             Number of pending messages
         """
         self._check_connection()
-        cursor = self._connection.execute(
-            "SELECT COUNT(*) FROM pending_downloads WHERE cursor_key = ?",
-            (cursor_key,),
-        )
+        if max_attempts is not None:
+            cursor = self._connection.execute(
+                "SELECT COUNT(*) FROM pending_downloads "
+                "WHERE cursor_key = ? AND attempts < ?",
+                (cursor_key, max_attempts),
+            )
+        else:
+            cursor = self._connection.execute(
+                "SELECT COUNT(*) FROM pending_downloads WHERE cursor_key = ?",
+                (cursor_key,),
+            )
         return cursor.fetchone()[0]
 
     def has_pending(self, cursor_key: str) -> bool:

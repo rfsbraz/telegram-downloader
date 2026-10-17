@@ -113,6 +113,10 @@ class Config(BaseModel):
     # Download tracking
     track_downloads: bool = Field(default=True)
 
+    # Give up on a pending message after this many failed download attempts
+    # (each attempt already includes the per-download retry budget)
+    max_download_attempts: int = Field(default=5, ge=1)
+
     # Logging
     verbosity: Literal["quiet", "normal", "verbose"] = Field(default="normal")
 
