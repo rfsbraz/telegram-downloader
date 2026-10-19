@@ -80,7 +80,7 @@ Solutions for common errors and issues.
     - Contact source admin for access
     - Remove source from configuration if no longer accessible
 
-    If a source starts failing during a check (for example it was deleted after startup), the error is logged with the source name, counted as `sources_failed` in the run summary, and the remaining sources still run. Its pending downloads resume on the next check. FloodWait and session errors still stop the whole check, because they affect every source.
+    If a source starts failing during a check (for example it was deleted after startup), the error is logged with the source name, counted as `sources_failed` in the run summary, and the remaining sources still run. Its pending downloads resume on the next check. If every source fails (including a single configured source), the check counts as failed: the health status becomes `error` and you get a "Check Failed" notification. FloodWait and session errors still stop the whole check, because they affect every source.
 
 ### Authentication Failed
 

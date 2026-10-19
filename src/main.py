@@ -475,6 +475,14 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
     log.info(f"Duration:           {duration:.1f}s")
     log.info("=" * 49)
 
+    # Isolation keeps a partial failure healthy, but a check where every
+    # source failed did nothing: fail it so the daemon reports it (#57)
+    if sources_with_filters and sources_failed == len(sources_with_filters):
+        raise RuntimeError(
+            f"{sources_failed} of {len(sources_with_filters)} source(s) failed "
+            f"this check, see the errors above"
+        )
+
     return {
         "sources_checked": len(sources_with_filters),
         "sources_failed": sources_failed,
