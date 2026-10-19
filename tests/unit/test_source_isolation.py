@@ -104,3 +104,59 @@ class TestFloodWaitStillTripsBreaker:
         kwargs = manager.notify.await_args.kwargs
         assert kwargs["title"] == "Rate Limited by Telegram"
         assert kwargs["force"] is True
+
+
+def make_daemon(tmp_path, sources):
+    args = make_args(sources)
+    manager = MagicMock()
+    manager.notify = AsyncMock()
+    service = DaemonService(
+        check_function=lambda: run_check(*args),
+        check_interval=300,
+        health_file=tmp_path / "health.txt",
+        notification_manager=manager,
+    )
+    return service, manager
+
+
+class TestEverySourceFailing:
+
+    async def test_all_sources_failing_fails_the_run(self):
+        sources = [
+            FakeSource("a", RuntimeError("CHANNEL_INVALID")),
+            FakeSource("b", RuntimeError("CHANNEL_PRIVATE")),
+        ]
+
+        with pytest.raises(Exception, match="2 of 2"):
+            await run_check(*make_args(sources))
+
+        assert all(s.scanned for s in sources)
+
+    async def test_single_failing_source_fails_the_run(self):
+        with pytest.raises(Exception, match="1 of 1"):
+            await run_check(*make_args([FakeSource("only", RuntimeError("boom"))]))
+
+    async def test_all_failing_goes_through_check_failed(self, tmp_path):
+        service, manager = make_daemon(tmp_path, [
+            FakeSource("a", RuntimeError("CHANNEL_INVALID")),
+            FakeSource("b", RuntimeError("CHANNEL_PRIVATE")),
+        ])
+
+        await service.run_check()
+
+        assert (tmp_path / "health.txt").read_text().splitlines()[0] == "error"
+        manager.notify.assert_awaited_once()
+        assert manager.notify.await_args.kwargs["title"] == "Check Failed"
+
+    async def test_partial_failure_stays_healthy(self, tmp_path):
+        service, manager = make_daemon(tmp_path, [
+            FakeSource("broken", RuntimeError("CHANNEL_INVALID")),
+            FakeSource("ok"),
+        ])
+
+        await service.run_check()
+
+        assert (tmp_path / "health.txt").read_text().splitlines()[0] == "healthy"
+        kwargs = manager.notify.await_args.kwargs
+        assert kwargs["title"] == "Download Check Complete"
+        assert kwargs["details"]["sources_failed"] == 1
