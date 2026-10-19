@@ -192,7 +192,7 @@ Multi-arch: `linux/amd64` and `linux/arm64` (Raspberry Pi 4+, Apple Silicon, AWS
 |-------|----------|
 | `PEER_ID_INVALID` | The chat ID is invalid or you haven't joined the chat. Open it in Telegram first. |
 | `FloodWait X` | Rate limited by Telegram. The daemon waits automatically. Increase check interval if persistent. |
-| `AUTH_KEY_UNREGISTERED` | Session expired. Delete `./sessions/` and re-authenticate. |
+| `AUTH_KEY_UNREGISTERED` | Session expired or revoked. The daemon notifies once, marks the container unhealthy and waits instead of restarting. Delete `./sessions/telegram_downloader.session`, re-authenticate, then restart. |
 | Health check failing | Check logs with `docker compose logs -f` |
 
 See the [troubleshooting guide](https://rfsbraz.github.io/telegram-downloader/troubleshooting/) for more.

@@ -14,6 +14,7 @@ foundation architecture.
 
 import asyncio
 import logging
+import signal
 import sys
 import time
 from logging.handlers import RotatingFileHandler
@@ -21,6 +22,7 @@ from pathlib import Path
 from typing import Optional
 
 from pyrogram import Client
+from pyrogram.errors import AuthKeyDuplicated, Unauthorized
 from pyrogram.types import Message
 
 from src.config import load_config, ConfigError
@@ -32,6 +34,12 @@ from src.state import CursorStore, DownloadHistory, PendingDownloads
 from src.client import create_client, download_media_with_retry
 from src.client.ratelimit import RateLimiter, parse_rate
 from src.notifications import NotificationManager, DiscordNotifier, GenericWebhook
+from src.daemon.health import HealthMonitor
+
+# Telegram errors that mean the session is dead and a human must re-auth
+# (AUTH_KEY_UNREGISTERED, SESSION_REVOKED, USER_DEACTIVATED, ...). Retrying
+# them never helps, see issue #78.
+AUTH_ERRORS = (Unauthorized, AuthKeyDuplicated)
 
 
 def setup_logging(log_file: str, verbosity: str) -> logging.Logger:
@@ -256,6 +264,8 @@ async def startup_validation(cfg, log, client):
     try:
         me = await client.get_me()
         log.info(f"Authenticated as: {me.first_name} {me.last_name or ''}")
+    except AUTH_ERRORS:
+        raise
     except Exception as e:
         raise RuntimeError(f"Telegram authentication failed: {e}")
 
@@ -467,6 +477,64 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
     }
 
 
+def build_notification_manager(cfg, log) -> Optional[NotificationManager]:
+    """Build the NotificationManager from config, or None if disabled."""
+    notification_manager = None
+    if cfg.notifications.enabled:
+        notifiers = []
+
+        # Add Discord notifier if webhook URL is configured
+        if cfg.notifications.discord_webhook_url:
+            discord = DiscordNotifier(
+                webhook_url=str(cfg.notifications.discord_webhook_url),
+                username=cfg.notifications.discord_username
+            )
+            notifiers.append(discord)
+
+        # Add generic webhook notifier if URL is configured
+        if cfg.notifications.generic_webhook_url:
+            webhook = GenericWebhook(
+                webhook_url=str(cfg.notifications.generic_webhook_url)
+            )
+            notifiers.append(webhook)
+
+        # Create notification manager if we have at least one channel
+        if notifiers:
+            notification_manager = NotificationManager(
+                notifiers=notifiers,
+                throttle_seconds=cfg.notifications.throttle_seconds
+            )
+            log.info(f"Notification system initialized with {len(notifiers)} channel(s)")
+    return notification_manager
+
+
+async def handle_auth_failure(cfg, log, notification_manager, error) -> None:
+    """Report a dead Telegram session: health file error + notification (#78)."""
+    reason = f"Telegram session needs re-auth: {error}"
+    log.error(reason)
+    HealthMonitor(Path(cfg.daemon.health_file)).update_status("error", reason=reason)
+    if notification_manager:
+        await notification_manager.notify(
+            level="error",
+            title="Telegram Session Needs Re-auth",
+            message=reason,
+            details={"error_type": type(error).__name__},
+            force=True,
+        )
+
+
+async def wait_for_shutdown() -> None:
+    """Block until SIGTERM/SIGINT (docker stop) instead of crash-looping."""
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, stop.set)
+        except NotImplementedError:
+            pass
+    await stop.wait()
+
+
 async def main():
     """Main entry point - daemon or run-once based on config."""
     cfg = load_config("/app/config.yaml")
@@ -518,6 +586,10 @@ async def main():
         limiter = RateLimiter(parse_rate(cfg.max_download_speed))
         log.info(f"Download speed capped at {cfg.max_download_speed}/s")
 
+    # Built before connecting so auth failures can be reported too (#78).
+    # Only the daemon uses it for routine check notifications.
+    notification_manager = build_notification_manager(cfg, log)
+
     # Create Pyrogram client
     client = create_client(cfg)
 
@@ -533,34 +605,6 @@ async def main():
                 log.info(
                     f"Starting daemon mode with {cfg.daemon.check_interval}s interval"
                 )
-
-                # Initialize notification manager if enabled
-                notification_manager = None
-                if cfg.notifications.enabled:
-                    notifiers = []
-
-                    # Add Discord notifier if webhook URL is configured
-                    if cfg.notifications.discord_webhook_url:
-                        discord = DiscordNotifier(
-                            webhook_url=str(cfg.notifications.discord_webhook_url),
-                            username=cfg.notifications.discord_username
-                        )
-                        notifiers.append(discord)
-
-                    # Add generic webhook notifier if URL is configured
-                    if cfg.notifications.generic_webhook_url:
-                        webhook = GenericWebhook(
-                            webhook_url=str(cfg.notifications.generic_webhook_url)
-                        )
-                        notifiers.append(webhook)
-
-                    # Create notification manager if we have at least one channel
-                    if notifiers:
-                        notification_manager = NotificationManager(
-                            notifiers=notifiers,
-                            throttle_seconds=cfg.notifications.throttle_seconds
-                        )
-                        log.info(f"Notification system initialized with {len(notifiers)} channel(s)")
 
                 # Create daemon service
                 from src.daemon import DaemonService
@@ -584,6 +628,14 @@ async def main():
             else:
                 log.info("Running in single-shot mode")
                 await run_check(cfg, log, state_store, client, sources_with_filters, history, pending, limiter)
+    except AUTH_ERRORS as e:
+        await handle_auth_failure(cfg, log, notification_manager, e)
+        if not cfg.daemon.enabled:
+            raise SystemExit(1)
+        # Stay up with status=error so Docker marks the container unhealthy,
+        # instead of exiting into a restart loop. Re-auth, then restart.
+        log.error("Waiting for re-auth; restart the container once the session is fixed")
+        await wait_for_shutdown()
     finally:
         # Cleanup
         if history:

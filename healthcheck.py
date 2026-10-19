@@ -9,6 +9,7 @@ Reads health status file and returns appropriate exit code:
 Health file format:
 Line 1: status (starting|healthy|error|stopped)
 Line 2: ISO timestamp of last update
+Line 3: optional reason (e.g. why status is error)
 """
 import os
 import sys
@@ -56,7 +57,8 @@ def main():
             print(f"Status: {status}")
             sys.exit(0)
         elif status == "error":
-            print("Status: error", file=sys.stderr)
+            reason = f" ({lines[2]})" if len(lines) > 2 else ""
+            print(f"Status: error{reason}", file=sys.stderr)
             sys.exit(1)
         else:
             print(f"Unknown status: {status}", file=sys.stderr)

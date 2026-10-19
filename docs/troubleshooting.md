@@ -98,6 +98,24 @@ Solutions for common errors and issues.
     docker compose logs -f  # Follow authentication prompts
     ```
 
+### Session Expired or Revoked
+
+!!! failure "Telegram Session Needs Re-auth"
+    **Symptom:** a "Telegram Session Needs Re-auth" notification, `docker compose ps` shows "unhealthy", and the logs show `AUTH_KEY_UNREGISTERED`, `SESSION_REVOKED`, `USER_DEACTIVATED` or a similar 401 error.
+
+    Retrying a dead session never helps, so the downloader does not crash-loop on these errors. It writes `status=error` (with the reason on line 3) to the health file, sends one notification, and in daemon mode stays up until you stop it. Docker marks it unhealthy after the health check start period plus 3 failed checks (about 6 minutes with the default `HEALTHCHECK`). In single-shot mode it exits with code 1.
+
+    **Fix:** delete only the session file (keeping `state.db` keeps your download history), re-authenticate, then restart:
+
+    ```bash
+    docker compose down
+    rm sessions/telegram_downloader.session
+    docker compose run --rm -e TDL_DAEMON_ENABLED=false telegram-downloader  # enter the code
+    docker compose up -d
+    ```
+
+    Don't retry the login too quickly: repeated code requests can trigger a Telegram `FLOOD_WAIT`.
+
 ## Docker Issues
 
 ### Container Won't Start
