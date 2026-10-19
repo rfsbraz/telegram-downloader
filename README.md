@@ -108,6 +108,24 @@ All configuration is done via environment variables with the `TDL_` prefix. See 
 - TDL_DAEMON_CHECK_INTERVAL=300  # seconds between checks
 ```
 
+### Scheduling & Bandwidth
+
+Control when checks run and how fast downloads go - useful for metered
+connections or shared networks:
+
+```yaml
+# Only run download checks inside these windows (24h, local time via TZ).
+# Multiple windows and cross-midnight windows are supported.
+- TDL_SCHEDULE_ACTIVE_HOURS=02:00-08:00,22:00-23:59
+
+# Cap aggregate download speed across all concurrent downloads
+- TDL_MAX_DOWNLOAD_SPEED=5MB
+```
+
+Outside active hours the daemon stays alive (health checks keep passing)
+but skips download checks. A download already in flight when a window
+closes is never interrupted. Both settings default to unrestricted.
+
 ### Notifications
 
 ```yaml
@@ -174,7 +192,7 @@ Multi-arch: `linux/amd64` and `linux/arm64` (Raspberry Pi 4+, Apple Silicon, AWS
 |-------|----------|
 | `PEER_ID_INVALID` | The chat ID is invalid or you haven't joined the chat. Open it in Telegram first. |
 | `FloodWait X` | Rate limited by Telegram. The daemon waits automatically. Increase check interval if persistent. |
-| `AUTH_KEY_UNREGISTERED` | Session expired. Delete `./sessions/` and re-authenticate. |
+| `AUTH_KEY_UNREGISTERED` | Session expired or revoked, at startup or mid-run. The daemon notifies once, marks the container unhealthy and waits instead of restarting. Delete `./sessions/telegram_downloader.session`, re-authenticate, then restart. |
 | Health check failing | Check logs with `docker compose logs -f` |
 
 See the [troubleshooting guide](https://rfsbraz.github.io/telegram-downloader/troubleshooting/) for more.

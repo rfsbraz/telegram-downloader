@@ -145,6 +145,35 @@ class TestBuildDestinationPathFlat:
         assert "\\" not in result.name  # No path separators
 
 
+class TestBuildDestinationPathUnicode:
+    """Non-Latin source and file names are preserved (issue #69)."""
+
+    @pytest.mark.asyncio
+    async def test_preserves_cjk_folder_and_filename(self, temp_dir):
+        """Chinese folder and file names should not become underscores."""
+        source = MockSource(display_name="中文频道")
+        config = SourceConfig(url="https://t.me/test")
+
+        result = await build_destination_path(
+            temp_dir, source, "中文文件.zip", config, flat_structure=False
+        )
+
+        assert result.parent.name == "中文频道"
+        assert result.name == "中文文件.zip"
+        assert result.parent.exists()
+
+    @pytest.mark.asyncio
+    async def test_distinct_non_latin_files_get_distinct_paths(self, temp_dir):
+        """Different non-Latin names must map to different destination paths."""
+        source = MockSource(display_name="Канал")
+        config = SourceConfig(url="https://t.me/test")
+
+        first = await build_destination_path(temp_dir, source, "文件一.zip", config)
+        second = await build_destination_path(temp_dir, source, "文件二.zip", config)
+
+        assert first != second
+
+
 class TestBuildDestinationPathDefaults:
     """Tests for default parameter behavior."""
 

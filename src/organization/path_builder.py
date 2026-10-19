@@ -32,7 +32,8 @@ async def build_destination_path(
     3. Fallback to cursor key if sanitization results in empty string
 
     Security measures:
-    - Sanitizes folder and filename using whitelist [a-zA-Z0-9._-]
+    - Sanitizes folder and filename using a whitelist (Unicode letters,
+      digits and combining marks plus ._-), see sanitize_filename
     - Validates final path doesn't escape base_dir
     - Creates folder with safe permissions (parents=True, exist_ok=True)
 

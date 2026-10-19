@@ -81,6 +81,8 @@ Examples:
 
 When `TDL_FLAT_STRUCTURE` is `false` (default), files are organized as `{download_dir}/{channel_name}/{filename}`. When `true`, all files go directly into `{download_dir}/{filename}`.
 
+Channel and file names are sanitized before they touch the filesystem. Letters and digits in any script are kept (e.g. `中文文件.zip`, `Документ.txt`, `café.pdf`), along with `.`, `_` and `-`. Spaces, path separators, characters that are invalid on Windows (`: * ? " < > |`) and control characters are replaced with `_`. Leading dots and trailing dots/spaces are trimmed, and Windows reserved names such as `CON` or `NUL.txt` are prefixed with `_`.
+
 When `TDL_TRACK_DOWNLOADS` is `true` (default), a persistent history of downloaded files is kept in the state database. This prevents re-downloading files that have been moved, renamed, or processed by external tools (e.g., media servers, Paperless-ngx, mergerfs). The tracking uses Telegram's `file_unique_id`, which is stable and unique per file content regardless of source. Set to `false` to disable and rely only on file-exists checks.
 
 ### Docker Environment

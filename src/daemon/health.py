@@ -1,7 +1,8 @@
 """Health status monitoring for daemon process."""
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -28,22 +29,41 @@ class HealthMonitor:
             health_file: Path to health status file (e.g., /app/health_status.txt)
         """
         self.health_file = health_file
+        self._last_status: Optional[str] = None
 
-    def update_status(self, status: str) -> None:
+    def update_status(self, status: str, reason: Optional[str] = None) -> None:
         """
         Update health status file with current status.
 
         Args:
             status: Current daemon status ("starting", "healthy", "error", "stopped")
+            reason: Optional human-readable reason, written as line 3
         """
         try:
-            self._write_health_file(status)
+            self._write_health_file(status, reason)
+            self._last_status = status
             logger.info(f"Health status: {status}")
         except Exception as e:
             # Log error but don't crash - health check failure is better than daemon crash
             logger.error(f"Failed to write health status: {e}")
 
-    def _write_health_file(self, status: str) -> None:
+    def heartbeat(self) -> None:
+        """
+        Refresh the health file timestamp without changing status.
+
+        Keeps the health file fresh during long check iterations and idle
+        periods between checks, so staleness detection only fires when the
+        daemon is genuinely stuck.
+        """
+        if self._last_status is None:
+            return
+        try:
+            self._write_health_file(self._last_status)
+            logger.debug(f"Health heartbeat: {self._last_status}")
+        except Exception as e:
+            logger.error(f"Failed to write health heartbeat: {e}")
+
+    def _write_health_file(self, status: str, reason: Optional[str] = None) -> None:
         """
         Atomically write health status to file.
 
@@ -52,17 +72,21 @@ class HealthMonitor:
 
         Args:
             status: Status string to write
+            reason: Optional reason string
 
         Format:
             Line 1: status
             Line 2: ISO timestamp
+            Line 3: reason (optional)
         """
         # Ensure parent directory exists
         self.health_file.parent.mkdir(parents=True, exist_ok=True)
 
-        # Prepare content with timestamp
-        timestamp = datetime.utcnow().isoformat()
+        # Prepare content with timezone-aware UTC timestamp
+        timestamp = datetime.now(timezone.utc).isoformat()
         content = f"{status}\n{timestamp}\n"
+        if reason:
+            content += f"{reason}\n"
 
         # Atomic write: temp file + rename
         temp_file = self.health_file.with_suffix('.tmp')

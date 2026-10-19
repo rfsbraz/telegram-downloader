@@ -9,14 +9,15 @@ Reads health status file and returns appropriate exit code:
 Health file format:
 Line 1: status (starting|healthy|error|stopped)
 Line 2: ISO timestamp of last update
+Line 3: optional reason (e.g. why status is error)
 """
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 
 HEALTH_FILE = Path(os.getenv("TDL_DAEMON_HEALTH_FILE", "/app/health_status.txt"))
-MAX_AGE_SECONDS = 600  # 10 minutes
+MAX_AGE_SECONDS = int(os.getenv("TDL_DAEMON_HEALTH_MAX_AGE", "600"))
 
 def main():
     # Check if health file exists
@@ -41,8 +42,12 @@ def main():
             print(f"Invalid timestamp: {timestamp_str}", file=sys.stderr)
             sys.exit(1)
 
+        # Older daemons wrote naive timestamps, which were always UTC
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+
         # Check if status is stale
-        age = datetime.now() - timestamp
+        age = datetime.now(timezone.utc) - timestamp
         if age.total_seconds() > MAX_AGE_SECONDS:
             print(f"Health status stale ({age.total_seconds():.0f}s old)", file=sys.stderr)
             sys.exit(1)
@@ -52,7 +57,8 @@ def main():
             print(f"Status: {status}")
             sys.exit(0)
         elif status == "error":
-            print("Status: error", file=sys.stderr)
+            reason = f" ({lines[2]})" if len(lines) > 2 else ""
+            print(f"Status: error{reason}", file=sys.stderr)
             sys.exit(1)
         else:
             print(f"Unknown status: {status}", file=sys.stderr)
