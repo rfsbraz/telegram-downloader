@@ -31,15 +31,16 @@ class HealthMonitor:
         self.health_file = health_file
         self._last_status: Optional[str] = None
 
-    def update_status(self, status: str) -> None:
+    def update_status(self, status: str, reason: Optional[str] = None) -> None:
         """
         Update health status file with current status.
 
         Args:
             status: Current daemon status ("starting", "healthy", "error", "stopped")
+            reason: Optional human-readable reason, written as line 3
         """
         try:
-            self._write_health_file(status)
+            self._write_health_file(status, reason)
             self._last_status = status
             logger.info(f"Health status: {status}")
         except Exception as e:
@@ -62,7 +63,7 @@ class HealthMonitor:
         except Exception as e:
             logger.error(f"Failed to write health heartbeat: {e}")
 
-    def _write_health_file(self, status: str) -> None:
+    def _write_health_file(self, status: str, reason: Optional[str] = None) -> None:
         """
         Atomically write health status to file.
 
@@ -71,10 +72,12 @@ class HealthMonitor:
 
         Args:
             status: Status string to write
+            reason: Optional reason string
 
         Format:
             Line 1: status
             Line 2: ISO timestamp
+            Line 3: reason (optional)
         """
         # Ensure parent directory exists
         self.health_file.parent.mkdir(parents=True, exist_ok=True)
@@ -82,6 +85,8 @@ class HealthMonitor:
         # Prepare content with timezone-aware UTC timestamp
         timestamp = datetime.now(timezone.utc).isoformat()
         content = f"{status}\n{timestamp}\n"
+        if reason:
+            content += f"{reason}\n"
 
         # Atomic write: temp file + rename
         temp_file = self.health_file.with_suffix('.tmp')

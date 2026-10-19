@@ -75,6 +75,27 @@ class TestHealthcheckExitCodes:
 
         assert result.returncode == 1
 
+    def test_error_reason_is_reported(self, temp_dir):
+        """Optional line 3 reason shows up in the health check output (#78)."""
+        health_file = temp_dir / "health_status.txt"
+        health_file.write_text(
+            f"error\n{datetime.now(timezone.utc).isoformat()}\n"
+            "Telegram session needs re-auth: AUTH_KEY_UNREGISTERED\n"
+        )
+
+        env = os.environ.copy()
+        env["TDL_DAEMON_HEALTH_FILE"] = str(health_file)
+
+        result = subprocess.run(
+            [sys.executable, str(HEALTHCHECK_SCRIPT)],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+
+        assert result.returncode == 1
+        assert "AUTH_KEY_UNREGISTERED" in result.stderr
+
     def test_missing_file_exits_one(self, temp_dir, monkeypatch):
         """Missing health file should exit with code 1."""
         env = os.environ.copy()
