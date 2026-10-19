@@ -1,6 +1,6 @@
 """Post-download hook execution.
 
-Runs a user-configured shell command after each successful download,
+Runs a user-configured command after each successful download,
 enabling integration with external tools (unrar, ffmpeg, library scans)
 without modifying the downloader itself.
 
@@ -11,12 +11,18 @@ shell is involved (subprocess exec, shell=False).
 """
 
 import asyncio
+import re
 import logging
 import shlex
 from pathlib import Path
 
 # Supported placeholders in the hook command template
 PLACEHOLDERS = ("file", "dir", "filename", "extension", "source", "size")
+
+
+_PLACEHOLDER_RE = re.compile(
+    r"\{(" + "|".join(PLACEHOLDERS) + r")\}"
+)
 
 
 def build_hook_command(
@@ -28,8 +34,9 @@ def build_hook_command(
     """Build the argv list for a hook command template.
 
     The template is tokenized first (shlex), then placeholders are
-    replaced inside each token, so values containing spaces or quotes
-    stay a single argument and cannot inject extra ones.
+    replaced inside each token in a single pass, so values containing
+    spaces, quotes, or placeholder-like text stay a single argument and
+    cannot inject extra ones or trigger further substitution.
 
     Args:
         template: Command template, e.g. 'unrar x "{file}" "{dir}"'
@@ -51,9 +58,9 @@ def build_hook_command(
 
     argv = []
     for token in shlex.split(template):
-        for name in PLACEHOLDERS:
-            token = token.replace("{" + name + "}", values[name])
-        argv.append(token)
+        argv.append(
+            _PLACEHOLDER_RE.sub(lambda m: values[m.group(1)], token)
+        )
     return argv
 
 

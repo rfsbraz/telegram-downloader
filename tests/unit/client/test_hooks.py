@@ -50,6 +50,17 @@ class TestBuildHookCommand:
         argv = build_hook_command('touch "{file}"', evil, "src", 1)
         assert argv == ["touch", str(evil)]
 
+    def test_placeholder_like_text_in_value_is_not_reprocessed(self):
+        """A filename containing {size} must not be rewritten to the size."""
+        file_path = Path("/downloads/report-{size}.pdf")
+        argv = build_hook_command(
+            'touch "{file}" {size}',
+            file_path=file_path,
+            source_name="src",
+            size=99,
+        )
+        assert argv == ["touch", str(file_path), "99"]
+
     def test_empty_template_yields_empty_argv(self):
         assert build_hook_command("", Path("/f.pdf"), "src", 1) == []
 
