@@ -8,32 +8,65 @@ Protects against:
 - Invalid filesystem characters
 - Unicode normalization attacks
 """
-import re
+import unicodedata
 from pathlib import Path
+
+# Punctuation allowed in addition to Unicode letters, digits and combining marks
+_ALLOWED_PUNCTUATION = frozenset("._-")
+
+# Device names reserved by Windows, regardless of case or extension
+_WINDOWS_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
+
+
+def _is_allowed_char(char: str) -> bool:
+    """Return True for Unicode letters/digits, combining marks and ``._-``."""
+    if char in _ALLOWED_PUNCTUATION or char.isalnum():
+        return True
+    # Combining marks (Mn/Mc/Me) are needed by scripts such as Devanagari
+    return unicodedata.category(char).startswith("M")
+
+
+def _replace_disallowed(text: str) -> str:
+    """Replace every character that is not explicitly allowed with ``_``."""
+    return "".join(char if _is_allowed_char(char) else "_" for char in text)
 
 
 def sanitize_filename(filename: str, max_length: int = 255) -> str:
     """
     Sanitize filename using whitelist approach for maximum security.
 
-    Only allows: [a-zA-Z0-9._-] characters
-    - Strips leading/trailing whitespace and dots
+    Only allows Unicode letters, digits and combining marks plus ``._-``
+    (so non-Latin names such as ``中文文件.zip`` or ``Документ.txt`` are kept).
+    Everything else - path separators, ``: * ? " < > |``, whitespace, control
+    and invisible format characters - is replaced with an underscore.
+
+    - Normalizes to Unicode NFC
+    - Strips leading/trailing whitespace, leading dots and trailing dots
     - Replaces path separators and null bytes with underscore
+    - Prefixes Windows reserved device names (CON, NUL, COM1, ...) with "_"
     - Preserves file extension if present
     - Truncates to max_length bytes
     - Returns "unnamed_file" if result is empty
 
     Examples:
         >>> sanitize_filename("../../etc/passwd")
-        'etc_passwd'
+        '_.._etc_passwd'
         >>> sanitize_filename("file\x00.exe")
         'file_.exe'
         >>> sanitize_filename("book (2023).epub")
-        'book_2023.epub'
+        'book__2023_.epub'
         >>> sanitize_filename(".hidden_file.txt")
         'hidden_file.txt'
         >>> sanitize_filename("../../../../etc/passwd.epub")
-        'etc_passwd.epub'
+        '_.._.._.._etc_passwd.epub'
+        >>> sanitize_filename("中文文件.zip")
+        '中文文件.zip'
+        >>> sanitize_filename("con.txt")
+        '_con.txt'
 
     Args:
         filename: Original filename from Telegram or user input
@@ -45,12 +78,18 @@ def sanitize_filename(filename: str, max_length: int = 255) -> str:
     if not filename:
         return "unnamed_file"
 
+    # Normalize so visually identical names map to the same byte sequence
+    name = unicodedata.normalize("NFC", filename)
+
     # Strip leading/trailing whitespace
-    name = filename.strip()
+    name = name.strip()
 
     # Strip leading dots (prevents hidden files)
     while name.startswith("."):
         name = name[1:]
+
+    # Strip trailing dots and whitespace (invalid on Windows)
+    name = name.rstrip(". ")
 
     # Separate extension if present (preserve it)
     extension = ""
@@ -60,17 +99,17 @@ def sanitize_filename(filename: str, max_length: int = 255) -> str:
             name, extension = parts
             extension = "." + extension
 
-    # Replace path separators and null bytes
-    name = name.replace("/", "_")
-    name = name.replace("\\", "_")
-    name = name.replace("\x00", "_")
-
-    # Whitelist: only allow alphanumeric, dots, underscores, hyphens
-    # This is the safest approach - explicitly allow known-safe characters
-    name = re.sub(r"[^a-zA-Z0-9._-]", "_", name)
+    # Whitelist: only allow Unicode letters/digits/marks, dots, underscores,
+    # hyphens. Path separators, null bytes and other control characters are
+    # replaced with underscores.
+    name = _replace_disallowed(name)
 
     # Also sanitize the extension
-    extension = re.sub(r"[^a-zA-Z0-9._-]", "_", extension)
+    extension = _replace_disallowed(extension)
+
+    # Avoid Windows reserved device names (e.g. "CON", "nul.txt", "COM1.log")
+    if name.split(".", 1)[0].upper() in _WINDOWS_RESERVED_NAMES:
+        name = "_" + name
 
     # Reconstruct filename
     result = name + extension

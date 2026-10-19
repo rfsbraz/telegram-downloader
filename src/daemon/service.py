@@ -7,7 +7,9 @@ from datetime import datetime, timedelta
 from typing import Callable, Awaitable, Optional
 from pathlib import Path
 
+from src.client.errors import AUTH_ERRORS
 from src.daemon.health import HealthMonitor
+from src.daemon.schedule import parse_active_hours, is_within_active_hours
 from src.notifications.manager import NotificationManager
 
 logger = logging.getLogger(__name__)
@@ -39,13 +41,16 @@ class DaemonService:
         during startup will fail-fast and prevent daemon from starting.
     """
 
+    HEARTBEAT_INTERVAL = 60  # seconds between health file timestamp refreshes
+
     def __init__(
         self,
         check_function: Callable[[], Awaitable[None]],
         check_interval: int,
         health_file: Path,
         check_timeout: Optional[int] = None,
-        notification_manager: Optional[NotificationManager] = None
+        notification_manager: Optional[NotificationManager] = None,
+        active_hours: str = ""
     ):
         """
         Initialize daemon service.
@@ -56,15 +61,20 @@ class DaemonService:
             health_file: Path to health status file
             check_timeout: Optional timeout for check execution (None = no timeout)
             notification_manager: Optional notification manager for sending alerts
+            active_hours: Optional schedule windows ("02:00-08:00,22:00-23:59");
+                checks outside these windows are skipped. Empty = no restriction.
         """
         self.check_function = check_function
         self.check_interval = check_interval
         self.check_timeout = check_timeout
         self.notification_manager = notification_manager
+        self.active_hours = active_hours
+        self.active_windows = parse_active_hours(active_hours) if active_hours else []
         self.shutdown_event = asyncio.Event()
         self.health = HealthMonitor(health_file)
         self.log = logging.getLogger("daemon")
         self.iteration = 0
+        self._heartbeat_task: Optional[asyncio.Task] = None
 
     async def startup(self):
         """
@@ -133,7 +143,20 @@ class DaemonService:
 
         Wraps check_function with error handling and health updates.
         Errors are logged but don't crash the daemon.
+
+        When active hours are configured, checks outside the windows are
+        skipped (the daemon stays alive and healthy). Downloads already in
+        flight when a window closes are never interrupted - the schedule
+        only gates the start of a check.
         """
+        # Schedule gate (issue #36)
+        if self.active_windows and not is_within_active_hours(self.active_windows):
+            self.log.info(
+                f"Outside active hours ({self.active_hours}), skipping check"
+            )
+            self.health.update_status("healthy")
+            return
+
         self.iteration += 1
         self.log.info(f"Starting periodic check (iteration {self.iteration})")
 
@@ -141,28 +164,32 @@ class DaemonService:
         try:
             # Run check with optional timeout
             if self.check_timeout:
-                await asyncio.wait_for(
+                result = await asyncio.wait_for(
                     self.check_function(),
                     timeout=self.check_timeout
                 )
             else:
-                await self.check_function()
+                result = await self.check_function()
 
             # Check successful
             duration = time.time() - start_time
             self.log.info(f"Check complete (took {duration:.1f}s)")
             self.health.update_status("healthy")
 
-            # Send success notification
+            # Send success notification (include run summary when the check
+            # function returns one - see issue #34)
             if self.notification_manager:
+                details = {
+                    "iteration": self.iteration,
+                    "duration": f"{duration:.1f}s"
+                }
+                if isinstance(result, dict):
+                    details.update(result)
                 await self.notification_manager.notify(
                     level="success",
                     title="Download Check Complete",
                     message=f"Iteration {self.iteration} completed successfully",
-                    details={
-                        "iteration": self.iteration,
-                        "duration": f"{duration:.1f}s"
-                    }
+                    details=details
                 )
 
         except asyncio.TimeoutError:
@@ -184,6 +211,11 @@ class DaemonService:
                     },
                     force=True
                 )
+
+        except AUTH_ERRORS:
+            # Dead session: not a failed check. Let main() report it once
+            # and keep the container unhealthy (issue #78).
+            raise
 
         except Exception as e:
             # Import FloodWait for circuit breaker check
@@ -235,6 +267,25 @@ class DaemonService:
                         "error_type": type(e).__name__
                     }
                 )
+
+    async def _heartbeat_loop(self):
+        """
+        Refresh the health file timestamp at a fixed interval.
+
+        Runs for the daemon's entire lifetime so the health file stays fresh
+        both during long check iterations and while sleeping between checks.
+        Without this, any check_interval (or single check) longer than the
+        healthcheck staleness window would mark a healthy daemon unhealthy.
+        """
+        while not self.shutdown_event.is_set():
+            try:
+                await asyncio.wait_for(
+                    self.shutdown_event.wait(),
+                    timeout=self.HEARTBEAT_INTERVAL
+                )
+                break  # Shutdown triggered
+            except asyncio.TimeoutError:
+                self.health.heartbeat()
 
     async def periodic_loop(self):
         """
@@ -313,16 +364,30 @@ class DaemonService:
         # Setup signal handlers
         self.setup_signal_handlers(loop)
 
+        auth_failed = False
         try:
             # Startup initialization and validation
             await self.startup()
 
+            # Keep health file timestamp fresh during and between checks
+            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+
             # Main periodic loop
             await self.periodic_loop()
 
+        except AUTH_ERRORS:
+            auth_failed = True
+            raise
+
         finally:
+            if self._heartbeat_task and not self._heartbeat_task.done():
+                self._heartbeat_task.cancel()
+            if auth_failed:
+                # main() writes status=error and sends the re-auth notice;
+                # no "stopped" status or shutdown notification here (#78)
+                pass
             # Ensure cleanup happens even if exceptions occur
-            if not self.shutdown_event.is_set():
+            elif not self.shutdown_event.is_set():
                 await self.shutdown()
             else:
                 # Shutdown was already initiated, just update final health status
