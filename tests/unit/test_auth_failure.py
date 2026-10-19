@@ -13,6 +13,7 @@ import pytest
 from pyrogram.errors import AuthKeyUnregistered
 
 import src.main as main_module
+from src.daemon.service import DaemonService
 
 
 class RevokedClient:
@@ -128,3 +129,62 @@ class TestStartupValidationAuthError:
 
         with pytest.raises(AuthKeyUnregistered):
             await main_module.startup_validation(MagicMock(), MagicMock(), client)
+
+
+class ConnectedClient:
+    """Client that starts fine; the session dies later, mid-run."""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+class TestAuthFailureMidRun:
+
+    async def test_auth_error_inside_daemon_check_gets_reauth_handling(
+        self, revoked_session
+    ):
+        configure, notify = revoked_session
+        cfg = configure(daemon_enabled=True)
+
+        shutdowns = []
+
+        async def fake_shutdown(service):
+            # The real shutdown cancels every task, including the test's own
+            shutdowns.append(service)
+            service.shutdown_event.set()
+
+        with patch.object(main_module, "create_client", lambda _c: ConnectedClient()), \
+             patch.object(DaemonService, "shutdown", fake_shutdown), \
+             patch.object(main_module, "startup_validation", AsyncMock(return_value=[])), \
+             patch.object(main_module, "run_check",
+                          AsyncMock(side_effect=AuthKeyUnregistered())):
+            task = asyncio.create_task(main_module.main())
+            try:
+                titles = []
+                loop = asyncio.get_running_loop()
+                deadline = loop.time() + 2.0
+                while loop.time() < deadline:
+                    titles = [c.kwargs["title"] for c in notify.await_args_list]
+                    if "Telegram Session Needs Re-auth" in titles or task.done():
+                        break
+                    await asyncio.sleep(0.01)
+                await asyncio.sleep(0.05)
+
+                assert not task.done(), "main() exited instead of staying up"
+
+                titles = [c.kwargs["title"] for c in notify.await_args_list]
+                lines = cfg.daemon.health_file.read_text().splitlines()
+                assert lines[0] == "error"
+                assert len(lines) > 2 and "AUTH_KEY_UNREGISTERED" in lines[2], (
+                    f"no re-auth reason in health file; notifications sent: {titles}"
+                )
+                assert titles.count("Telegram Session Needs Re-auth") == 1
+                assert "Check Failed" not in titles
+                assert "Daemon Shutting Down" not in titles
+                assert not shutdowns, "daemon ran its normal shutdown"
+            finally:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
