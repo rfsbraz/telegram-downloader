@@ -22,6 +22,7 @@ from typing import Optional
 
 from pyrogram import Client
 from pyrogram.types import Message
+from pyrogram import errors as tg_errors
 
 from src.config import load_config, ConfigError
 from src.config.schema import SourceConfig
@@ -333,6 +334,7 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
         "bytes_downloaded": 0,
     }
     total_failed = 0
+    sources_failed = 0
 
     # Create global concurrency control
     semaphore = asyncio.Semaphore(cfg.max_concurrent_downloads)
@@ -340,97 +342,112 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
     # Iterate sources sequentially (config order = priority)
     for source, composite_filter, source_config in sources_with_filters:
         cursor_key = source.get_cursor_key()
-        last_seen_id = state_store.get(cursor_key, 0)
+        display_name = cursor_key
+        try:
+            last_seen_id = state_store.get(cursor_key, 0)
+            display_name = await source.get_display_name()
 
-        log.info("=" * 60)
-        log.info(
-            f"Processing {await source.get_display_name()}, "
-            f"last_seen={last_seen_id}"
-        )
-        log.info("=" * 60)
-
-        max_downloads = cfg.max_downloads_per_run or 0
-
-        # --- Scan phase: stream IDs into pending ---
-        if pending and pending.has_pending(cursor_key):
-            # Resume mode: scan only for NEW messages above the pending range
-            scan_above = pending.get_max_message_id(cursor_key)
-            new_ids = []
-            async for msg in source.iterate_new_media(scan_above):
-                if await composite_filter.matches(msg):
-                    new_ids.append(msg.id)
-            if new_ids:
-                pending.add_batch(cursor_key, new_ids)
-                log.info(f"Added {len(new_ids)} new message(s) to pending queue")
-        else:
-            # Fresh scan: stream matching IDs into pending (no Message accumulation)
-            scanned_ids = []
-            async for msg in source.iterate_new_media(last_seen_id):
-                if await composite_filter.matches(msg):
-                    scanned_ids.append(msg.id)
-
-            if not scanned_ids:
-                log.info("No new matching documents.")
-                continue
-
-            pending.add_batch(cursor_key, scanned_ids)
-            log.info(f"Found {len(scanned_ids)} candidates, queued for download")
-
-        # --- Download phase: pull batches from pending, fetch fresh messages ---
-        batch_size = max_downloads if max_downloads else 200
-        total_downloaded = 0
-
-        while True:
-            batch_ids = pending.get_oldest(cursor_key, batch_size)
-            if not batch_ids:
-                break
-
-            # Fetch fresh Message objects (gives us valid file references)
-            messages = await client.get_messages(
-                chat_id=source.chat_id, message_ids=batch_ids
-            )
-            if not isinstance(messages, list):
-                messages = [messages]
-            candidates = [m for m in messages if m and m.id]
-            candidates.sort(key=lambda m: m.id)
-
-            # IDs that returned empty from get_messages (deleted/inaccessible)
-            candidate_ids = {m.id for m in candidates}
-            orphaned_ids = set(batch_ids) - candidate_ids
-
-            if not candidates:
-                pending.remove_batch(cursor_key, list(orphaned_ids))
-                if max_downloads:
-                    break
-                continue
-
+            log.info("=" * 60)
             log.info(
-                f"Processing {len(candidates)} messages "
-                f"(oldest={candidates[0].id}, newest={candidates[-1].id}, "
-                f"total pending={pending.count(cursor_key)})"
+                f"Processing {display_name}, "
+                f"last_seen={last_seen_id}"
             )
+            log.info("=" * 60)
 
-            batch_stats, failed_ids = await download_batch(
-                candidates, semaphore, client, Path(cfg.download_dir),
-                state_store, cursor_key, cfg, log, source, source_config, history,
-                limiter,
+            max_downloads = cfg.max_downloads_per_run or 0
+
+            # --- Scan phase: stream IDs into pending ---
+            if pending and pending.has_pending(cursor_key):
+                # Resume mode: scan only for NEW messages above the pending range
+                scan_above = pending.get_max_message_id(cursor_key)
+                new_ids = []
+                async for msg in source.iterate_new_media(scan_above):
+                    if await composite_filter.matches(msg):
+                        new_ids.append(msg.id)
+                if new_ids:
+                    pending.add_batch(cursor_key, new_ids)
+                    log.info(f"Added {len(new_ids)} new message(s) to pending queue")
+            else:
+                # Fresh scan: stream matching IDs into pending (no Message accumulation)
+                scanned_ids = []
+                async for msg in source.iterate_new_media(last_seen_id):
+                    if await composite_filter.matches(msg):
+                        scanned_ids.append(msg.id)
+
+                if not scanned_ids:
+                    log.info("No new matching documents.")
+                    continue
+
+                pending.add_batch(cursor_key, scanned_ids)
+                log.info(f"Found {len(scanned_ids)} candidates, queued for download")
+
+            # --- Download phase: pull batches from pending, fetch fresh messages ---
+            batch_size = max_downloads if max_downloads else 200
+            total_downloaded = 0
+
+            while True:
+                batch_ids = pending.get_oldest(cursor_key, batch_size)
+                if not batch_ids:
+                    break
+
+                # Fetch fresh Message objects (gives us valid file references)
+                messages = await client.get_messages(
+                    chat_id=source.chat_id, message_ids=batch_ids
+                )
+                if not isinstance(messages, list):
+                    messages = [messages]
+                candidates = [m for m in messages if m and m.id]
+                candidates.sort(key=lambda m: m.id)
+
+                # IDs that returned empty from get_messages (deleted/inaccessible)
+                candidate_ids = {m.id for m in candidates}
+                orphaned_ids = set(batch_ids) - candidate_ids
+
+                if not candidates:
+                    pending.remove_batch(cursor_key, list(orphaned_ids))
+                    if max_downloads:
+                        break
+                    continue
+
+                log.info(
+                    f"Processing {len(candidates)} messages "
+                    f"(oldest={candidates[0].id}, newest={candidates[-1].id}, "
+                    f"total pending={pending.count(cursor_key)})"
+                )
+
+                batch_stats, failed_ids = await download_batch(
+                    candidates, semaphore, client, Path(cfg.download_dir),
+                    state_store, cursor_key, cfg, log, source, source_config, history,
+                    limiter,
+                )
+
+                # Remove from pending: orphaned + processed (everything except failures)
+                remove_ids = orphaned_ids | (candidate_ids - failed_ids)
+                pending.remove_batch(cursor_key, list(remove_ids))
+                total_downloaded += batch_stats["downloaded"]
+                total_failed += len(failed_ids)
+                for key in totals:
+                    totals[key] += batch_stats[key]
+
+                if max_downloads:
+                    break  # Capped mode: one batch only
+
+            remaining = pending.count(cursor_key)
+            if remaining:
+                log.info(f"{remaining} message(s) still pending for next run")
+            log.info(f"Downloaded {total_downloaded} files")
+        except (tg_errors.FloodWait, tg_errors.Unauthorized):
+            # Account-wide errors hit every later source too: let the
+            # daemon's circuit breaker and error handling see them (#57)
+            raise
+        except Exception as e:
+            # One broken source must not starve the ones after it (#57).
+            # Its pending queue resumes on the next run.
+            sources_failed += 1
+            log.error(
+                f"Source {display_name} failed, continuing with the next one: {e}",
+                exc_info=True,
             )
-
-            # Remove from pending: orphaned + processed (everything except failures)
-            remove_ids = orphaned_ids | (candidate_ids - failed_ids)
-            pending.remove_batch(cursor_key, list(remove_ids))
-            total_downloaded += batch_stats["downloaded"]
-            total_failed += len(failed_ids)
-            for key in totals:
-                totals[key] += batch_stats[key]
-
-            if max_downloads:
-                break  # Capped mode: one batch only
-
-        remaining = pending.count(cursor_key)
-        if remaining:
-            log.info(f"{remaining} message(s) still pending for next run")
-        log.info(f"Downloaded {total_downloaded} files")
 
     # --- Run summary (issue #34) ---
     duration = time.monotonic() - run_started
@@ -450,6 +467,7 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
 
     log.info("=" * 18 + " Run Summary " + "=" * 18)
     log.info(f"Sources checked:    {len(sources_with_filters)}")
+    log.info(f"Sources failed:     {sources_failed}")
     log.info(f"Files downloaded:   {totals['downloaded']}")
     log.info(f"Files skipped:      {skipped_total}{breakdown}")
     log.info(f"Files failed:       {total_failed}")
@@ -457,8 +475,17 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
     log.info(f"Duration:           {duration:.1f}s")
     log.info("=" * 49)
 
+    # Isolation keeps a partial failure healthy, but a check where every
+    # source failed did nothing: fail it so the daemon reports it (#57)
+    if sources_with_filters and sources_failed == len(sources_with_filters):
+        raise RuntimeError(
+            f"{sources_failed} of {len(sources_with_filters)} source(s) failed "
+            f"this check, see the errors above"
+        )
+
     return {
         "sources_checked": len(sources_with_filters),
+        "sources_failed": sources_failed,
         "files_downloaded": totals["downloaded"],
         "files_skipped": skipped_total,
         "files_failed": total_failed,
