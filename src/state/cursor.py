@@ -113,7 +113,11 @@ class CursorStore:
                     VALUES (?, ?, CURRENT_TIMESTAMP)
                     ON CONFLICT(source_key) DO UPDATE SET
                         last_message_id = MAX(last_message_id, excluded.last_message_id),
-                        updated_at = CURRENT_TIMESTAMP
+                        updated_at = CASE
+                            WHEN excluded.last_message_id > last_message_id
+                            THEN CURRENT_TIMESTAMP
+                            ELSE updated_at
+                        END
                 """, (source_key, message_id))
                 self._connection.commit()
                 return

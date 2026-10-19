@@ -9,6 +9,7 @@ Implements robust download functionality with:
 """
 
 import asyncio
+import os
 import logging
 import time
 from contextvars import ContextVar
@@ -263,22 +264,40 @@ async def download_media_with_retry(
                         )
                         return False
 
-            # Re-check for conflicts at rename time: a concurrent download may
-            # have created dest_path since the caller's pre-download check
-            if dest_path.exists():
-                if is_duplicate(dest_path, dest_temp.stat().st_size):
-                    dest_temp.unlink()
-                    log.info(
-                        f"Skip duplicate at rename: {dest_path.name} "
-                        "(same size, downloaded concurrently)"
+            # Publish without clobbering. Path.rename overwrites on POSIX, so
+            # two concurrent finishes that both saw dest_path absent could still
+            # drop one file. Reserve the name with O_EXCL, then atomically
+            # replace that empty placeholder with the finished .partial file.
+            while True:
+                try:
+                    fd = os.open(
+                        dest_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY
                     )
-                    return True
-                resolved = resolve_conflict(dest_path)
-                log.info(f"Conflict at rename: {dest_path.name} → {resolved.name}")
-                dest_path = resolved
-
-            # Atomic rename on success (prevents partial files in download dir)
-            dest_temp.rename(dest_path)
+                    os.close(fd)
+                except FileExistsError:
+                    if is_duplicate(dest_path, dest_temp.stat().st_size):
+                        dest_temp.unlink()
+                        log.info(
+                            f"Skip duplicate at rename: {dest_path.name} "
+                            "(same size, downloaded concurrently)"
+                        )
+                        return True
+                    resolved = resolve_conflict(dest_path)
+                    log.info(
+                        f"Conflict at rename: {dest_path.name} → {resolved.name}"
+                    )
+                    dest_path = resolved
+                    continue
+                try:
+                    os.replace(dest_temp, dest_path)
+                except Exception:
+                    # Leave no empty placeholder behind if replace fails
+                    try:
+                        dest_path.unlink()
+                    except OSError:
+                        pass
+                    raise
+                break
             log.info(f"Download complete: {dest_path.name}")
             return True
 
