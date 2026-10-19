@@ -22,7 +22,6 @@ from pathlib import Path
 from typing import Optional
 
 from pyrogram import Client
-from pyrogram.errors import AuthKeyDuplicated, Unauthorized
 from pyrogram.types import Message
 
 from src.config import load_config, ConfigError
@@ -34,12 +33,8 @@ from src.state import CursorStore, DownloadHistory, PendingDownloads
 from src.client import create_client, download_media_with_retry
 from src.client.ratelimit import RateLimiter, parse_rate
 from src.notifications import NotificationManager, DiscordNotifier, GenericWebhook
+from src.client.errors import AUTH_ERRORS
 from src.daemon.health import HealthMonitor
-
-# Telegram errors that mean the session is dead and a human must re-auth
-# (AUTH_KEY_UNREGISTERED, SESSION_REVOKED, USER_DEACTIVATED, ...). Retrying
-# them never helps, see issue #78.
-AUTH_ERRORS = (Unauthorized, AuthKeyDuplicated)
 
 
 def setup_logging(log_file: str, verbosity: str) -> logging.Logger:

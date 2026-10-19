@@ -103,7 +103,7 @@ Solutions for common errors and issues.
 !!! failure "Telegram Session Needs Re-auth"
     **Symptom:** a "Telegram Session Needs Re-auth" notification, `docker compose ps` shows "unhealthy", and the logs show `AUTH_KEY_UNREGISTERED`, `SESSION_REVOKED`, `USER_DEACTIVATED` or a similar 401 error.
 
-    Retrying a dead session never helps, so the downloader does not crash-loop on these errors. It writes `status=error` (with the reason on line 3) to the health file, sends one notification, and in daemon mode stays up until you stop it. Docker marks it unhealthy after the health check start period plus 3 failed checks (about 6 minutes with the default `HEALTHCHECK`). In single-shot mode it exits with code 1.
+    Retrying a dead session never helps, so the downloader does not crash-loop on these errors, whether they happen at startup or during a check while the daemon is running. A mid-run auth error is not reported as "Check Failed". The downloader writes `status=error` (with the reason on line 3) to the health file, sends one notification, and in daemon mode stays up until you stop it. Docker marks it unhealthy after the health check start period plus 3 failed checks (about 6 minutes with the default `HEALTHCHECK`). In single-shot mode it exits with code 1.
 
     **Fix:** delete only the session file (keeping `state.db` keeps your download history), re-authenticate, then restart:
 

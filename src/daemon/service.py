@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from typing import Callable, Awaitable, Optional
 from pathlib import Path
 
+from src.client.errors import AUTH_ERRORS
 from src.daemon.health import HealthMonitor
 from src.daemon.schedule import parse_active_hours, is_within_active_hours
 from src.notifications.manager import NotificationManager
@@ -211,6 +212,11 @@ class DaemonService:
                     force=True
                 )
 
+        except AUTH_ERRORS:
+            # Dead session: not a failed check. Let main() report it once
+            # and keep the container unhealthy (issue #78).
+            raise
+
         except Exception as e:
             # Import FloodWait for circuit breaker check
             try:
@@ -358,6 +364,7 @@ class DaemonService:
         # Setup signal handlers
         self.setup_signal_handlers(loop)
 
+        auth_failed = False
         try:
             # Startup initialization and validation
             await self.startup()
@@ -368,11 +375,19 @@ class DaemonService:
             # Main periodic loop
             await self.periodic_loop()
 
+        except AUTH_ERRORS:
+            auth_failed = True
+            raise
+
         finally:
             if self._heartbeat_task and not self._heartbeat_task.done():
                 self._heartbeat_task.cancel()
+            if auth_failed:
+                # main() writes status=error and sends the re-auth notice;
+                # no "stopped" status or shutdown notification here (#78)
+                pass
             # Ensure cleanup happens even if exceptions occur
-            if not self.shutdown_event.is_set():
+            elif not self.shutdown_event.is_set():
                 await self.shutdown()
             else:
                 # Shutdown was already initiated, just update final health status
