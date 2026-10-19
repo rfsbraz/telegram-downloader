@@ -19,7 +19,7 @@ Solutions for common errors and issues.
 
     **Cause:** Telegram rate limiting (too many API requests).
 
-    **Automatic Handling:** Daemon retries automatically after wait time with exponential backoff.
+    **Automatic Handling:** Downloads wait the time Telegram asks for, plus 5 seconds, then retry the same file. Other downloads pause until the wait ends. A FloodWait does not use up a retry. This also covers FloodWaits that Pyrogram logs instead of raising, for example during `auth.ExportAuthorization` when a file lives on another data center.
 
 !!! tip "Reduce FloodWait Frequency"
     If FloodWait errors are persistent:
@@ -80,6 +80,8 @@ Solutions for common errors and issues.
     - Contact source admin for access
     - Remove source from configuration if no longer accessible
 
+    If a source starts failing during a check (for example it was deleted after startup), the error is logged with the source name, counted as `sources_failed` in the run summary, and the remaining sources still run. Its pending downloads resume on the next check. If every source fails (including a single configured source), the check counts as failed: the health status becomes `error` and you get a "Check Failed" notification. FloodWait and session errors still stop the whole check, because they affect every source.
+
 ### Authentication Failed
 
 !!! failure "Authentication Failed"
@@ -97,6 +99,24 @@ Solutions for common errors and issues.
     docker compose up -d
     docker compose logs -f  # Follow authentication prompts
     ```
+
+### Session Expired or Revoked
+
+!!! failure "Telegram Session Needs Re-auth"
+    **Symptom:** a "Telegram Session Needs Re-auth" notification, `docker compose ps` shows "unhealthy", and the logs show `AUTH_KEY_UNREGISTERED`, `SESSION_REVOKED`, `USER_DEACTIVATED` or a similar 401 error.
+
+    Retrying a dead session never helps, so the downloader does not crash-loop on these errors, whether they happen at startup or during a check while the daemon is running. A mid-run auth error is not reported as "Check Failed". The downloader writes `status=error` (with the reason on line 3) to the health file, sends one notification, and in daemon mode stays up until you stop it. Docker marks it unhealthy after the health check start period plus 3 failed checks (about 6 minutes with the default `HEALTHCHECK`). In single-shot mode it exits with code 1.
+
+    **Fix:** delete only the session file (keeping `state.db` keeps your download history), re-authenticate, then restart:
+
+    ```bash
+    docker compose down
+    rm sessions/telegram_downloader.session
+    docker compose run --rm -e TDL_DAEMON_ENABLED=false telegram-downloader  # enter the code
+    docker compose up -d
+    ```
+
+    Don't retry the login too quickly: repeated code requests can trigger a Telegram `FLOOD_WAIT`.
 
 ## Docker Issues
 

@@ -14,13 +14,16 @@ foundation architecture.
 
 import asyncio
 import logging
+import signal
 import sys
+import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
 
 from pyrogram import Client
 from pyrogram.types import Message
+from pyrogram import errors as tg_errors
 
 from src.config import load_config, ConfigError
 from src.config.schema import SourceConfig
@@ -30,7 +33,10 @@ from src.sources.base import BaseSource
 from src.state import CursorStore, DownloadHistory, PendingDownloads
 from src.client import create_client, download_media_with_retry
 from src.client.hooks import run_post_download_hook
+from src.client.ratelimit import RateLimiter, parse_rate
 from src.notifications import NotificationManager, DiscordNotifier, GenericWebhook
+from src.client.errors import AUTH_ERRORS
+from src.daemon.health import HealthMonitor
 
 
 def setup_logging(log_file: str, verbosity: str) -> logging.Logger:
@@ -80,6 +86,18 @@ def setup_logging(log_file: str, verbosity: str) -> logging.Logger:
     return logging.getLogger("downloader")
 
 
+def format_bytes(num_bytes: int) -> str:
+    """Format a byte count as a human-readable string (e.g. '142.5 MB')."""
+    value = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if value < 1024 or unit == "TB":
+            if unit == "B":
+                return f"{int(value)} {unit}"
+            return f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} TB"
+
+
 async def download_batch(
     messages: list[Message],
     semaphore: asyncio.Semaphore,
@@ -92,6 +110,7 @@ async def download_batch(
     source: BaseSource,
     source_config: SourceConfig,
     history: "DownloadHistory | None" = None,
+    limiter: "RateLimiter | None" = None,
 ) -> tuple[int, set[int]]:
     """Download a batch of messages concurrently with semaphore limit.
 
@@ -107,18 +126,26 @@ async def download_batch(
         source: Source object for this batch
         source_config: Source configuration for folder naming
         history: Optional download history for persistent deduplication
+        limiter: Optional shared RateLimiter capping aggregate download speed
 
     Returns:
-        Tuple of (download_count, failed_message_ids).
+        Tuple of (stats, failed_message_ids).
+        stats is a counter dict: downloaded, skipped_duplicate, skipped_tracked,
+        skipped_error, bytes_downloaded.
         Failed IDs are messages where download_media_with_retry returned False.
         Skips (history hit, duplicate, path error) are NOT failures.
     """
-    downloaded = 0
+    stats = {
+        "downloaded": 0,
+        "skipped_duplicate": 0,
+        "skipped_tracked": 0,
+        "skipped_error": 0,
+        "bytes_downloaded": 0,
+    }
     failed_ids: set[int] = set()
 
     async def download_one(msg: Message) -> None:
         """Download single message with semaphore."""
-        nonlocal downloaded
 
         async with semaphore:  # Acquire semaphore slot
             # Extract media and filename
@@ -138,6 +165,7 @@ async def download_batch(
             if history and file_unique_id and history.contains(file_unique_id):
                 log.info(f"Skip (already downloaded): {fname}")
                 cursor_store.set(cursor_key, msg.id)
+                stats["skipped_tracked"] += 1
                 return
 
             # Build organized destination path (includes per-source folder and validation)
@@ -152,6 +180,7 @@ async def download_batch(
             except ValueError as e:
                 log.error(f"Path validation failed for {fname}: {e}")
                 cursor_store.set(cursor_key, msg.id)
+                stats["skipped_error"] += 1
                 return
 
             # Check for duplicates and resolve conflicts
@@ -159,6 +188,7 @@ async def download_batch(
                 if is_duplicate(dest, media_size):
                     log.info(f"Skip duplicate: {dest.name} (same size)")
                     cursor_store.set(cursor_key, msg.id)
+                    stats["skipped_duplicate"] += 1
                     return
                 # Different content, resolve conflict
                 original_dest = dest
@@ -168,6 +198,7 @@ async def download_batch(
                 except RuntimeError as e:
                     log.error(f"Cannot resolve conflict for {dest.name}: {e}")
                     cursor_store.set(cursor_key, msg.id)
+                    stats["skipped_error"] += 1
                     return
 
             # Download with retry logic
@@ -182,10 +213,12 @@ async def download_batch(
                 config,
                 log,
                 expected_size=media_size,
+                limiter=limiter,
             )
 
             if success:
-                downloaded += 1
+                stats["downloaded"] += 1
+                stats["bytes_downloaded"] += media_size or 0
                 cursor_store.set(cursor_key, msg.id)
                 if history and file_unique_id:
                     history.record(file_unique_id, fname, media_size, cursor_key, msg.id)
@@ -212,7 +245,7 @@ async def download_batch(
         for msg in messages:
             tg.create_task(download_one(msg))
 
-    return downloaded, failed_ids
+    return stats, failed_ids
 
 
 async def startup_validation(cfg, log, client):
@@ -225,14 +258,14 @@ async def startup_validation(cfg, log, client):
     - Source accessibility (parse_sources + validate_source_access)
 
     Returns:
-        sources_with_filters: List of (source, filter_config) tuples for run_check
+        sources_with_filters: List of (source, filter, source_config) tuples
+        for run_check. Sources that cannot be resolved or accessed are
+        skipped with an error log (issue #40); startup only fails if NO
+        source is usable.
 
     Raises:
-        ConfigError: Configuration validation failed
-        RuntimeError: Telegram auth or source access failed
-
-    BLOCKER 2 FIX: validate_source_access() exceptions propagate unchanged.
-    RuntimeError indicates source inaccessibility (fail-fast behavior).
+        ConfigError: Configuration validation failed or no usable sources
+        RuntimeError: Telegram auth failed
 
     BLOCKER 3 FIX: Parse sources once here, return sources_with_filters.
     main() stores result and passes to run_check via closure.
@@ -242,6 +275,8 @@ async def startup_validation(cfg, log, client):
     try:
         me = await client.get_me()
         log.info(f"Authenticated as: {me.first_name} {me.last_name or ''}")
+    except AUTH_ERRORS:
+        raise
     except Exception as e:
         raise RuntimeError(f"Telegram authentication failed: {e}")
 
@@ -249,25 +284,47 @@ async def startup_validation(cfg, log, client):
     # Without this, numeric chat IDs from t.me/c/ links fail with PEER_ID_INVALID
     log.info("Loading chat list to populate peer cache...")
     dialog_count = 0
-    async for _ in client.get_dialogs():
-        dialog_count += 1
-    log.debug(f"Loaded {dialog_count} dialogs into peer cache")
+    try:
+        async for _ in client.get_dialogs():
+            dialog_count += 1
+        log.debug(f"Loaded {dialog_count} dialogs into peer cache")
+    except Exception as e:
+        # Pyrogram can crash while parsing certain dialogs (e.g.
+        # "'NoneType' object has no attribute 'id'" on dialogs whose peer
+        # can't be resolved - see issue #47). The dialogs iterated before
+        # the failure are already cached, so degrade to a warning instead
+        # of taking the whole app down: only sources configured via
+        # private t.me/c/ links that weren't cached yet would be affected,
+        # and those will surface a clear per-source error later.
+        log.warning(
+            f"Chat list loading failed after {dialog_count} dialog(s): {e}. "
+            f"Continuing with a partial peer cache; sources configured via "
+            f"private t.me/c/ links may fail to resolve this run."
+        )
 
     # Parse and validate sources (BLOCKER 3 FIX: parse once, return result)
     log.info("Validating configured sources...")
     sources_with_filters = await parse_sources(cfg, client)
-    sources = [s for s, _ in sources_with_filters]
+    sources_with_filters = await validate_source_access(sources_with_filters, client)
 
-    # BLOCKER 2 FIX: Let validate_source_access exceptions propagate
-    # RuntimeError from validate_source_access indicates source inaccessibility
-    # This is fail-fast behavior - startup should fail if sources are inaccessible
-    await validate_source_access(sources, client)
-    log.info(f"All {len(sources)} source(s) accessible")
+    configured = len(cfg.sources)
+    usable = len(sources_with_filters)
+    if usable == 0:
+        raise ConfigError(
+            f"None of the {configured} configured source(s) are accessible. "
+            f"Check the errors above and fix your configuration."
+        )
+    if usable < configured:
+        log.warning(
+            f"{configured - usable} of {configured} source(s) skipped as "
+            f"unresolvable/inaccessible - see errors above"
+        )
+    log.info(f"{usable} source(s) accessible")
 
     return sources_with_filters
 
 
-async def run_check(cfg, log, state_store, client, sources_with_filters, history=None, pending=None):
+async def run_check(cfg, log, state_store, client, sources_with_filters, history=None, pending=None, limiter=None):
     """
     Single check iteration - process all configured sources.
 
@@ -279,116 +336,240 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
         log: Logger instance
         state_store: CursorStore instance
         client: Pyrogram client instance
-        sources_with_filters: Pre-parsed list of (source, filter_config) tuples
+        sources_with_filters: Pre-parsed list of (source, filter, source_config) tuples
         history: Optional DownloadHistory for persistent deduplication
         pending: Optional PendingDownloads queue for resumable downloads
+        limiter: Optional shared RateLimiter capping aggregate download speed
+
+    Returns:
+        Run summary dict (sources checked, files downloaded/skipped/failed,
+        bytes downloaded, duration) for notification channels.
     """
+    run_started = time.monotonic()
+    totals = {
+        "downloaded": 0,
+        "skipped_duplicate": 0,
+        "skipped_tracked": 0,
+        "skipped_error": 0,
+        "bytes_downloaded": 0,
+    }
+    total_failed = 0
+    sources_failed = 0
+
     # Create global concurrency control
     semaphore = asyncio.Semaphore(cfg.max_concurrent_downloads)
 
-    # Build mapping: cursor_key -> source_config for folder naming
-    source_config_map: dict[str, SourceConfig] = {}
-    for idx, (source, _) in enumerate(sources_with_filters):
-        cursor_key = source.get_cursor_key()
-        # Use same index to get corresponding source config
-        source_config_map[cursor_key] = cfg.sources[idx]
-
     # Iterate sources sequentially (config order = priority)
-    for source, composite_filter in sources_with_filters:
+    for source, composite_filter, source_config in sources_with_filters:
         cursor_key = source.get_cursor_key()
-        last_seen_id = state_store.get(cursor_key, 0)
+        display_name = cursor_key
+        try:
+            last_seen_id = state_store.get(cursor_key, 0)
+            display_name = await source.get_display_name()
 
-        log.info("=" * 60)
-        log.info(
-            f"Processing {await source.get_display_name()}, "
-            f"last_seen={last_seen_id}"
-        )
-        log.info("=" * 60)
-
-        max_downloads = cfg.max_downloads_per_run or 0
-
-        # Look up source_config early (needed for download_batch)
-        source_config = source_config_map.get(cursor_key)
-        if source_config is None:
-            log.error(f"No source config found for cursor key: {cursor_key}")
-            continue
-
-        # --- Scan phase: stream IDs into pending ---
-        if pending and pending.has_pending(cursor_key):
-            # Resume mode: scan only for NEW messages above the pending range
-            scan_above = pending.get_max_message_id(cursor_key)
-            new_ids = []
-            async for msg in source.iterate_new_media(scan_above):
-                if await composite_filter.matches(msg):
-                    new_ids.append(msg.id)
-            if new_ids:
-                pending.add_batch(cursor_key, new_ids)
-                log.info(f"Added {len(new_ids)} new message(s) to pending queue")
-        else:
-            # Fresh scan: stream matching IDs into pending (no Message accumulation)
-            scanned_ids = []
-            async for msg in source.iterate_new_media(last_seen_id):
-                if await composite_filter.matches(msg):
-                    scanned_ids.append(msg.id)
-
-            if not scanned_ids:
-                log.info("No new matching documents.")
-                continue
-
-            pending.add_batch(cursor_key, scanned_ids)
-            log.info(f"Found {len(scanned_ids)} candidates, queued for download")
-
-        # --- Download phase: pull batches from pending, fetch fresh messages ---
-        batch_size = max_downloads if max_downloads else 200
-        total_downloaded = 0
-
-        while True:
-            batch_ids = pending.get_oldest(cursor_key, batch_size)
-            if not batch_ids:
-                break
-
-            # Fetch fresh Message objects (gives us valid file references)
-            messages = await client.get_messages(
-                chat_id=source.chat_id, message_ids=batch_ids
-            )
-            if not isinstance(messages, list):
-                messages = [messages]
-            candidates = [m for m in messages if m and m.id]
-            candidates.sort(key=lambda m: m.id)
-
-            # IDs that returned empty from get_messages (deleted/inaccessible)
-            candidate_ids = {m.id for m in candidates}
-            orphaned_ids = set(batch_ids) - candidate_ids
-
-            if not candidates:
-                pending.remove_batch(cursor_key, list(orphaned_ids))
-                if max_downloads:
-                    break
-                continue
-
+            log.info("=" * 60)
             log.info(
-                f"Processing {len(candidates)} messages "
-                f"(oldest={candidates[0].id}, newest={candidates[-1].id}, "
-                f"total pending={pending.count(cursor_key)})"
+                f"Processing {display_name}, "
+                f"last_seen={last_seen_id}"
+            )
+            log.info("=" * 60)
+
+            max_downloads = cfg.max_downloads_per_run or 0
+
+            # --- Scan phase: stream IDs into pending ---
+            if pending and pending.has_pending(cursor_key):
+                # Resume mode: scan only for NEW messages above the pending range
+                scan_above = pending.get_max_message_id(cursor_key)
+                new_ids = []
+                async for msg in source.iterate_new_media(scan_above):
+                    if await composite_filter.matches(msg):
+                        new_ids.append(msg.id)
+                if new_ids:
+                    pending.add_batch(cursor_key, new_ids)
+                    log.info(f"Added {len(new_ids)} new message(s) to pending queue")
+            else:
+                # Fresh scan: stream matching IDs into pending (no Message accumulation)
+                scanned_ids = []
+                async for msg in source.iterate_new_media(last_seen_id):
+                    if await composite_filter.matches(msg):
+                        scanned_ids.append(msg.id)
+
+                if not scanned_ids:
+                    log.info("No new matching documents.")
+                    continue
+
+                pending.add_batch(cursor_key, scanned_ids)
+                log.info(f"Found {len(scanned_ids)} candidates, queued for download")
+
+            # --- Download phase: pull batches from pending, fetch fresh messages ---
+            batch_size = max_downloads if max_downloads else 200
+            total_downloaded = 0
+
+            while True:
+                batch_ids = pending.get_oldest(cursor_key, batch_size)
+                if not batch_ids:
+                    break
+
+                # Fetch fresh Message objects (gives us valid file references)
+                messages = await client.get_messages(
+                    chat_id=source.chat_id, message_ids=batch_ids
+                )
+                if not isinstance(messages, list):
+                    messages = [messages]
+                candidates = [m for m in messages if m and m.id]
+                candidates.sort(key=lambda m: m.id)
+
+                # IDs that returned empty from get_messages (deleted/inaccessible)
+                candidate_ids = {m.id for m in candidates}
+                orphaned_ids = set(batch_ids) - candidate_ids
+
+                if not candidates:
+                    pending.remove_batch(cursor_key, list(orphaned_ids))
+                    if max_downloads:
+                        break
+                    continue
+
+                log.info(
+                    f"Processing {len(candidates)} messages "
+                    f"(oldest={candidates[0].id}, newest={candidates[-1].id}, "
+                    f"total pending={pending.count(cursor_key)})"
+                )
+
+                batch_stats, failed_ids = await download_batch(
+                    candidates, semaphore, client, Path(cfg.download_dir),
+                    state_store, cursor_key, cfg, log, source, source_config, history,
+                    limiter,
+                )
+
+                # Remove from pending: orphaned + processed (everything except failures)
+                remove_ids = orphaned_ids | (candidate_ids - failed_ids)
+                pending.remove_batch(cursor_key, list(remove_ids))
+                total_downloaded += batch_stats["downloaded"]
+                total_failed += len(failed_ids)
+                for key in totals:
+                    totals[key] += batch_stats[key]
+
+                if max_downloads:
+                    break  # Capped mode: one batch only
+
+            remaining = pending.count(cursor_key)
+            if remaining:
+                log.info(f"{remaining} message(s) still pending for next run")
+            log.info(f"Downloaded {total_downloaded} files")
+        except (tg_errors.FloodWait, tg_errors.Unauthorized):
+            # Account-wide errors hit every later source too: let the
+            # daemon's circuit breaker and error handling see them (#57)
+            raise
+        except Exception as e:
+            # One broken source must not starve the ones after it (#57).
+            # Its pending queue resumes on the next run.
+            sources_failed += 1
+            log.error(
+                f"Source {display_name} failed, continuing with the next one: {e}",
+                exc_info=True,
             )
 
-            downloaded, failed_ids = await download_batch(
-                candidates, semaphore, client, Path(cfg.download_dir),
-                state_store, cursor_key, cfg, log, source, source_config, history,
+    # --- Run summary (issue #34) ---
+    duration = time.monotonic() - run_started
+    skipped_total = (
+        totals["skipped_duplicate"]
+        + totals["skipped_tracked"]
+        + totals["skipped_error"]
+    )
+    breakdown_parts = []
+    if totals["skipped_duplicate"]:
+        breakdown_parts.append(f"{totals['skipped_duplicate']} duplicate")
+    if totals["skipped_tracked"]:
+        breakdown_parts.append(f"{totals['skipped_tracked']} already tracked")
+    if totals["skipped_error"]:
+        breakdown_parts.append(f"{totals['skipped_error']} path error")
+    breakdown = f" ({', '.join(breakdown_parts)})" if breakdown_parts else ""
+
+    log.info("=" * 18 + " Run Summary " + "=" * 18)
+    log.info(f"Sources checked:    {len(sources_with_filters)}")
+    log.info(f"Sources failed:     {sources_failed}")
+    log.info(f"Files downloaded:   {totals['downloaded']}")
+    log.info(f"Files skipped:      {skipped_total}{breakdown}")
+    log.info(f"Files failed:       {total_failed}")
+    log.info(f"Bytes downloaded:   {format_bytes(totals['bytes_downloaded'])}")
+    log.info(f"Duration:           {duration:.1f}s")
+    log.info("=" * 49)
+
+    # Isolation keeps a partial failure healthy, but a check where every
+    # source failed did nothing: fail it so the daemon reports it (#57)
+    if sources_with_filters and sources_failed == len(sources_with_filters):
+        raise RuntimeError(
+            f"{sources_failed} of {len(sources_with_filters)} source(s) failed "
+            f"this check, see the errors above"
+        )
+
+    return {
+        "sources_checked": len(sources_with_filters),
+        "sources_failed": sources_failed,
+        "files_downloaded": totals["downloaded"],
+        "files_skipped": skipped_total,
+        "files_failed": total_failed,
+        "bytes_downloaded": format_bytes(totals["bytes_downloaded"]),
+        "duration": f"{duration:.1f}s",
+    }
+
+
+def build_notification_manager(cfg, log) -> Optional[NotificationManager]:
+    """Build the NotificationManager from config, or None if disabled."""
+    notification_manager = None
+    if cfg.notifications.enabled:
+        notifiers = []
+
+        # Add Discord notifier if webhook URL is configured
+        if cfg.notifications.discord_webhook_url:
+            discord = DiscordNotifier(
+                webhook_url=str(cfg.notifications.discord_webhook_url),
+                username=cfg.notifications.discord_username
             )
+            notifiers.append(discord)
 
-            # Remove from pending: orphaned + processed (everything except failures)
-            remove_ids = orphaned_ids | (candidate_ids - failed_ids)
-            pending.remove_batch(cursor_key, list(remove_ids))
-            total_downloaded += downloaded
+        # Add generic webhook notifier if URL is configured
+        if cfg.notifications.generic_webhook_url:
+            webhook = GenericWebhook(
+                webhook_url=str(cfg.notifications.generic_webhook_url)
+            )
+            notifiers.append(webhook)
 
-            if max_downloads:
-                break  # Capped mode: one batch only
+        # Create notification manager if we have at least one channel
+        if notifiers:
+            notification_manager = NotificationManager(
+                notifiers=notifiers,
+                throttle_seconds=cfg.notifications.throttle_seconds
+            )
+            log.info(f"Notification system initialized with {len(notifiers)} channel(s)")
+    return notification_manager
 
-        remaining = pending.count(cursor_key)
-        if remaining:
-            log.info(f"{remaining} message(s) still pending for next run")
-        log.info(f"Downloaded {total_downloaded} files")
+
+async def handle_auth_failure(cfg, log, notification_manager, error) -> None:
+    """Report a dead Telegram session: health file error + notification (#78)."""
+    reason = f"Telegram session needs re-auth: {error}"
+    log.error(reason)
+    HealthMonitor(Path(cfg.daemon.health_file)).update_status("error", reason=reason)
+    if notification_manager:
+        await notification_manager.notify(
+            level="error",
+            title="Telegram Session Needs Re-auth",
+            message=reason,
+            details={"error_type": type(error).__name__},
+            force=True,
+        )
+
+
+async def wait_for_shutdown() -> None:
+    """Block until SIGTERM/SIGINT (docker stop) instead of crash-looping."""
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, stop.set)
+        except NotImplementedError:
+            pass
+    await stop.wait()
 
 
 async def main():
@@ -436,6 +617,16 @@ async def main():
         log.warning("Note: Test servers require test phone numbers (99966XXXXXX)")
         log.warning("=" * 60)
 
+    # Optional bandwidth cap shared by all downloads (issue #36)
+    limiter = None
+    if cfg.max_download_speed:
+        limiter = RateLimiter(parse_rate(cfg.max_download_speed))
+        log.info(f"Download speed capped at {cfg.max_download_speed}/s")
+
+    # Built before connecting so auth failures can be reported too (#78).
+    # Only the daemon uses it for routine check notifications.
+    notification_manager = build_notification_manager(cfg, log)
+
     # Create Pyrogram client
     client = create_client(cfg)
 
@@ -452,34 +643,6 @@ async def main():
                     f"Starting daemon mode with {cfg.daemon.check_interval}s interval"
                 )
 
-                # Initialize notification manager if enabled
-                notification_manager = None
-                if cfg.notifications.enabled:
-                    notifiers = []
-
-                    # Add Discord notifier if webhook URL is configured
-                    if cfg.notifications.discord_webhook_url:
-                        discord = DiscordNotifier(
-                            webhook_url=str(cfg.notifications.discord_webhook_url),
-                            username=cfg.notifications.discord_username
-                        )
-                        notifiers.append(discord)
-
-                    # Add generic webhook notifier if URL is configured
-                    if cfg.notifications.generic_webhook_url:
-                        webhook = GenericWebhook(
-                            webhook_url=str(cfg.notifications.generic_webhook_url)
-                        )
-                        notifiers.append(webhook)
-
-                    # Create notification manager if we have at least one channel
-                    if notifiers:
-                        notification_manager = NotificationManager(
-                            notifiers=notifiers,
-                            throttle_seconds=cfg.notifications.throttle_seconds
-                        )
-                        log.info(f"Notification system initialized with {len(notifiers)} channel(s)")
-
                 # Create daemon service
                 from src.daemon import DaemonService
 
@@ -487,20 +650,29 @@ async def main():
                 # Do NOT re-parse sources in run_check - reuse startup_validation result
                 async def check_wrapper():
                     """Wrapper for run_check that captures sources_with_filters."""
-                    await run_check(cfg, log, state_store, client, sources_with_filters, history, pending)
+                    return await run_check(cfg, log, state_store, client, sources_with_filters, history, pending, limiter)
 
                 service = DaemonService(
                     check_function=check_wrapper,
                     check_interval=cfg.daemon.check_interval,
                     health_file=Path(cfg.daemon.health_file),
-                    notification_manager=notification_manager
+                    notification_manager=notification_manager,
+                    active_hours=cfg.schedule_active_hours
                 )
 
                 # Run daemon
                 await service.run()
             else:
                 log.info("Running in single-shot mode")
-                await run_check(cfg, log, state_store, client, sources_with_filters, history, pending)
+                await run_check(cfg, log, state_store, client, sources_with_filters, history, pending, limiter)
+    except AUTH_ERRORS as e:
+        await handle_auth_failure(cfg, log, notification_manager, e)
+        if not cfg.daemon.enabled:
+            raise SystemExit(1)
+        # Stay up with status=error so Docker marks the container unhealthy,
+        # instead of exiting into a restart loop. Re-auth, then restart.
+        log.error("Waiting for re-auth; restart the container once the session is fixed")
+        await wait_for_shutdown()
     finally:
         # Cleanup
         if history:

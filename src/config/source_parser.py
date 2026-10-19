@@ -5,12 +5,13 @@ Parses source configuration into Source instances with filter composition,
 handling global filter defaults and per-source overrides.
 """
 
+import logging
 from typing import Optional
 
 from pyrogram import Client
 
 from src.config.loader import ConfigError
-from src.config.schema import Config, GlobalFilters
+from src.config.schema import Config, GlobalFilters, SourceConfig
 from src.config.url_parser import parse_telegram_url
 from src.filters import (
     CompositeFilter,
@@ -21,6 +22,8 @@ from src.filters import (
 )
 from src.sources.base import BaseSource
 from src.sources.factory import create_source
+
+logger = logging.getLogger("downloader")
 
 
 def parse_size(size_str: str) -> int:
@@ -169,29 +172,36 @@ def build_filters(filter_config: GlobalFilters) -> CompositeFilter:
 async def parse_sources(
     config: Config,
     client: Client
-) -> list[tuple[BaseSource, CompositeFilter]]:
+) -> list[tuple[BaseSource, CompositeFilter, SourceConfig]]:
     """
     Parse sources from configuration and create Source instances with filters.
 
     For each source:
     1. Resolves URL or chat_id to Source instance via factory
     2. Builds CompositeFilter by merging global and per-source filters
-    3. Returns list of (source, filter) tuples
+    3. Returns list of (source, filter, source_config) tuples
+
+    Configuration errors (missing url/chat_id, invalid URL, bad filter
+    values) fail fast with ConfigError - they need a config fix.
+    Telegram-side resolution failures (deleted/renamed channel, ban,
+    network issues) only skip that source with an error log, so one dead
+    source doesn't take down the remaining ones (issue #40).
 
     Args:
         config: Configuration with sources list
         client: Authenticated Pyrogram client
 
     Returns:
-        List of (BaseSource, CompositeFilter) tuples
+        List of (BaseSource, CompositeFilter, SourceConfig) tuples for
+        the sources that could be resolved
 
     Raises:
-        ConfigError: If source configuration is invalid
-        ValueError: If URL parsing or source creation fails
+        ConfigError: If source configuration itself is invalid
     """
     results = []
 
     for idx, source_config in enumerate(config.sources):
+        # --- Configuration parsing: fail fast on invalid config ---
         try:
             # Determine chat_id and topic_id
             chat_id = None
@@ -210,9 +220,6 @@ async def parse_sources(
                 raise ConfigError(
                     f"Source {idx + 1}: Either url or chat_id must be provided"
                 )
-
-            # Create source instance via factory
-            source_instance = await create_source(client, chat_id, topic_id)
 
             # Build filters: merge global with per-source overrides
             if source_config.filters:
@@ -238,39 +245,57 @@ async def parse_sources(
                 # Use global filters
                 composite_filter = build_filters(config.global_filters)
 
-            results.append((source_instance, composite_filter))
-
+        except ConfigError:
+            raise
         except Exception as e:
             # Wrap exceptions with source context
             raise ConfigError(
                 f"Failed to parse source {idx + 1}: {e}"
             )
 
+        # --- Telegram resolution: skip this source on failure ---
+        label = source_config.url or source_config.chat_id
+        try:
+            source_instance = await create_source(client, chat_id, topic_id)
+        except Exception as e:
+            logger.error(
+                f"Source {idx + 1} ({label}) could not be resolved: {e} - "
+                f"skipping this source. Remove or fix it in your configuration."
+            )
+            continue
+
+        results.append((source_instance, composite_filter, source_config))
+
     return results
 
 
 async def validate_source_access(
-    sources: list[BaseSource],
+    sources_with_filters: list[tuple[BaseSource, CompositeFilter, SourceConfig]],
     client: Client
-) -> None:
+) -> list[tuple[BaseSource, CompositeFilter, SourceConfig]]:
     """
-    Validate that all sources are accessible at startup.
+    Validate source accessibility at startup, keeping only usable sources.
 
     Attempts to get chat info for each source to ensure:
     - Chat exists and is accessible
     - User has permission to access chat
     - Chat ID is valid
 
-    Fails fast if any source is inaccessible.
+    Inaccessible sources are skipped with a clear error log instead of
+    aborting the whole run, so one dead source doesn't block the rest
+    (issue #40).
 
     Args:
-        sources: List of BaseSource instances to validate
+        sources_with_filters: (source, filter, source_config) tuples to validate
         client: Authenticated Pyrogram client
 
-    Raises:
-        ConfigError: If any source is inaccessible with clear error message
+    Returns:
+        The subset of tuples whose sources are accessible
     """
-    for idx, source in enumerate(sources):
+    accessible = []
+
+    for idx, entry in enumerate(sources_with_filters):
+        source = entry[0]
         try:
             # Try to get chat info
             await client.get_chat(source.chat_id)
@@ -279,23 +304,20 @@ async def validate_source_access(
 
             # Detect specific error types and provide helpful messages
             if "peer_id_invalid" in error_msg or "peer id invalid" in error_msg:
-                raise ConfigError(
-                    f"Source {idx + 1} (chat_id={source.chat_id}): "
-                    f"Invalid chat ID. Chat may not exist or you haven't interacted with it."
-                )
+                reason = "Invalid chat ID. Chat may not exist or you haven't interacted with it."
             elif "user_not_participant" in error_msg or "not a participant" in error_msg:
-                raise ConfigError(
-                    f"Source {idx + 1} (chat_id={source.chat_id}): "
-                    f"You are not a member of this chat. Join the chat first."
-                )
+                reason = "You are not a member of this chat. Join the chat first."
             elif "chat_forbidden" in error_msg or "forbidden" in error_msg:
-                raise ConfigError(
-                    f"Source {idx + 1} (chat_id={source.chat_id}): "
-                    f"Access forbidden. You may have been banned or removed."
-                )
+                reason = "Access forbidden. You may have been banned or removed."
             else:
-                # Generic error
-                raise ConfigError(
-                    f"Source {idx + 1} (chat_id={source.chat_id}): "
-                    f"Cannot access chat: {e}"
-                )
+                reason = f"Cannot access chat: {e}"
+
+            logger.error(
+                f"Source {idx + 1} (chat_id={source.chat_id}): {reason} "
+                f"- skipping this source."
+            )
+            continue
+
+        accessible.append(entry)
+
+    return accessible
