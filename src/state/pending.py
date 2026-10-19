@@ -60,13 +60,17 @@ class PendingDownloads:
                 PRIMARY KEY (cursor_key, message_id)
             )
         """)
-        # Migrate databases created before the attempts column existed
+        # Migrate databases created before the attempts column existed.
+        # Only ignore "duplicate column" — other OperationalErrors (locked,
+        # read-only, corruption) must surface so we don't later fail with
+        # "no such column: attempts".
         try:
             self._connection.execute(
                 "ALTER TABLE pending_downloads ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0"
             )
-        except sqlite3.OperationalError:
-            pass  # Column already exists
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e).lower():
+                raise StateError(f"Failed to migrate pending_downloads schema: {e}")
         self._connection.commit()
 
     def _check_connection(self) -> None:

@@ -442,9 +442,17 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
                 # dead-lettered instead of retried indefinitely
                 if failed_ids:
                     pending.increment_attempts(cursor_key, list(failed_ids))
+                    still_pending = pending.count(
+                        cursor_key, cfg.max_download_attempts
+                    )
+                    exhausted_now = pending.count_exhausted(
+                        cursor_key, cfg.max_download_attempts
+                    )
                     log.warning(
-                        f"{len(failed_ids)} download(s) failed, will retry "
-                        f"(up to {cfg.max_download_attempts} attempts per message)"
+                        f"{len(failed_ids)} download(s) failed "
+                        f"({still_pending} still within attempt budget, "
+                        f"{exhausted_now} exhausted after "
+                        f"{cfg.max_download_attempts} attempts)"
                     )
 
                 if max_downloads:
