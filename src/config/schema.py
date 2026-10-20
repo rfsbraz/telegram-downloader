@@ -113,6 +113,12 @@ class Config(BaseModel):
     # Download tracking
     track_downloads: bool = Field(default=True)
 
+    # Post-download hook: argv command (no shell) run after each successful
+    # download. Supports placeholders: {file}, {dir}, {filename}, {extension},
+    # {source}, {size}. Pipes, redirects and globbing are not expanded.
+    post_download_hook: Optional[str] = None
+    post_download_hook_timeout: int = Field(default=300, ge=1, le=86400)
+
     # Give up on a pending message after this many failed download attempts
     # (each attempt already includes the per-download retry budget)
     max_download_attempts: int = Field(default=5, ge=1)
