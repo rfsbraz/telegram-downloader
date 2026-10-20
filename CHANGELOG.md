@@ -5,6 +5,16 @@
 
 * add missing dependency ([4542021](https://github.com/rfsbraz/telegram-downloader/commit/454202198134f12a4e8561bde262b69cad10035b))
 
+## [1.4.2](https://github.com/rfsbraz/telegram-downloader/compare/v1.4.1...v1.4.2) (2026-10-20)
+
+
+### Bug Fixes
+
+* **auth:** report expired Telegram session instead of crash-looping ([#88](https://github.com/rfsbraz/telegram-downloader/issues/88)) ([90a3159](https://github.com/rfsbraz/telegram-downloader/commit/90a31594301a7ba0284d44cd190b1d1ac88aef21))
+* **check:** isolate per-source failures in run_check ([#89](https://github.com/rfsbraz/telegram-downloader/issues/89)) ([75a6af9](https://github.com/rfsbraz/telegram-downloader/commit/75a6af96ad1c1dde4249b87b16db77968cc98412))
+* **downloads:** prevent concurrent same-name collisions and cursor regression ([#50](https://github.com/rfsbraz/telegram-downloader/issues/50)) ([0324056](https://github.com/rfsbraz/telegram-downloader/commit/03240566cb01d232303daf6e15d3b7665365bb77))
+* **state:** cap retry attempts for pending downloads ([#49](https://github.com/rfsbraz/telegram-downloader/issues/49)) ([f7c8cf2](https://github.com/rfsbraz/telegram-downloader/commit/f7c8cf2c44627d9b98378643e4c7f650cc354465))
+
 ## [1.4.1](https://github.com/rfsbraz/telegram-downloader/compare/v1.4.0...v1.4.1) (2026-10-14)
 
 
