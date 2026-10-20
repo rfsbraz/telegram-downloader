@@ -1,9 +1,13 @@
 """
 Configuration loader with environment variable and YAML support.
 
-Supports two configuration methods:
-1. Environment variables with TDL_ prefix (preferred for Docker)
-2. YAML configuration file (fallback)
+Supports two configuration methods, which can be combined:
+1. YAML configuration file
+2. Environment variables with TDL_ prefix (preferred for Docker)
+
+Each environment variable overrides the matching setting from the file;
+settings it does not touch keep the file's value. Sources are one setting:
+if any TDL_SOURCES_* variable is set, the env sources replace the file's.
 
 Environment variable format:
 - TDL_API_ID=12345
@@ -110,6 +114,10 @@ NESTED_MAPPINGS = {
     "global_filters_archive_exts": ("global_filters", "archive_exts"),
     "global_filters_min_size": ("global_filters", "min_size"),
     "global_filters_max_size": ("global_filters", "max_size"),
+    "global_filters_include_patterns": ("global_filters", "include_patterns"),
+    "global_filters_exclude_patterns": ("global_filters", "exclude_patterns"),
+    "global_filters_only_after": ("global_filters", "only_after"),
+    "global_filters_only_before": ("global_filters", "only_before"),
 }
 
 
@@ -118,8 +126,9 @@ def _parse_value(key: str, value: str) -> Any:
     # Get the last part of the key for simple field matching
     field_name = key.split("_")[-1].lower()
 
-    # Check if it's a list field
-    if field_name in LIST_FIELDS:
+    # Check if it's a list field. Match the whole field name at the end of
+    # the key, since list fields like include_patterns contain underscores.
+    if any(key == f or key.endswith("_" + f) for f in LIST_FIELDS):
         return [v.strip() for v in value.split(",") if v.strip()]
 
     # Check if it's a boolean field
@@ -288,13 +297,27 @@ def _load_from_yaml(path: str) -> dict:
     return _substitute_env_vars(raw_data)
 
 
+def _merge(base: dict, override: dict) -> dict:
+    """Recursively merge override into base. Dicts merge, other values replace."""
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
 def load_config(path: str = "/app/config.yaml") -> Config:
     """
-    Load configuration from environment variables or YAML file.
+    Load configuration from a YAML file and environment variables.
 
-    Priority:
-    1. TDL_ prefixed environment variables (if any exist)
+    Precedence:
+    1. TDL_ prefixed environment variables, setting by setting
     2. YAML configuration file
+    3. Schema defaults
+
+    The file is optional when environment variables are set.
 
     Args:
         path: Path to YAML configuration file (fallback)
@@ -305,19 +328,22 @@ def load_config(path: str = "/app/config.yaml") -> Config:
     Raises:
         ConfigError: If configuration is invalid or cannot be loaded
     """
-    # Try environment variables first
-    data = _load_from_env()
+    env_data = _load_from_env()
 
-    if data is None:
-        # Fall back to YAML file
+    file_data: dict = {}
+    if env_data is None or Path(path).exists():
+        # The file is required only when no environment variables are set
         try:
-            data = _load_from_yaml(path)
+            file_data = _load_from_yaml(path)
         except yaml.YAMLError as e:
             raise ConfigError(f"Invalid YAML syntax: {e}")
-        except ConfigError:
-            raise
+        except ConfigError as e:
+            if env_data is None or "empty" not in str(e):
+                raise
         except Exception as e:
             raise ConfigError(f"Failed to read configuration file: {e}")
+
+    data = _merge(file_data, env_data or {})
 
     # Apply legacy environment variable overrides (for backward compatibility)
     if "API_ID" in os.environ and "api_id" not in data:

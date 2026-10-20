@@ -17,9 +17,10 @@ Complete reference for all configuration options.
     ```
 
 === "YAML Configuration File"
-    **For running from source**
+    **Good for long source lists and patterns**
 
-    - Read from `/app/config.yaml` (fixed path)
+    - Read from `/app/config.yaml` (fixed path). With Docker, mount it there: `./config.yaml:/app/config.yaml:ro`
+    - Optional when environment variables are set
     - Keys match the field names below, nested the same way
     - Values can use `${VAR}` or `${VAR:-default}` to pull in environment variables
 
@@ -30,8 +31,12 @@ Complete reference for all configuration options.
       enabled: true
     ```
 
-!!! warning "Environment variables or the file, not both"
-    The two are not merged. If any `TDL_` variable is set, `/app/config.yaml` is ignored completely. The Docker image sets `TDL_DOWNLOAD_DIR`, `TDL_SESSION_DIR` and `TDL_DAEMON_HEALTH_FILE` itself, so inside the image the file is never read. Use environment variables with Docker.
+!!! tip "Priority order"
+    You can use both. Each environment variable overrides the matching setting from `/app/config.yaml`, and settings no variable sets keep the file's value. The order is: environment variable, then the file, then the default.
+
+    Sources are one setting: if any `TDL_SOURCES_N_*` variable is set, the sources from environment variables replace the file's `sources` list.
+
+    The Docker image sets `TDL_DOWNLOAD_DIR`, `TDL_SESSION_DIR` and `TDL_DAEMON_HEALTH_FILE` itself, so those three always come from the environment there.
 
 ## Environment Variable Format
 
@@ -257,8 +262,7 @@ Per-source filters override global defaults. A per-source value replaces the glo
           include_patterns: ["*ebook*", "*book*"]
     ```
 
-!!! bug "Known issue: list filters other than extensions"
-    `INCLUDE_PATTERNS`, `EXCLUDE_PATTERNS` and `ARCHIVE_EXTS` are currently rejected when set through environment variables (the value is not split into a list, so startup fails with "Input should be a valid list"). Until that is fixed they only work from `config.yaml`.
+List settings take comma-separated values in environment variables, e.g. `TDL_SOURCES_0_FILTERS_INCLUDE_PATTERNS=*ebook*,*book*`.
 
 **Size format:** Number + unit: B, KB, MB, GB or TB, 1024-based (e.g., `500KB`, `1.5GB`). A bare number without a unit is rejected at startup.
 **Date format:** `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM:SS`, read as UTC. A date alone means midnight at the start of that day, so `ONLY_BEFORE=2026-01-31` stops at the start of 31 January; use `2026-01-31T23:59:59` to include the whole day.
@@ -274,9 +278,11 @@ Applied to all sources unless overridden.
 | `TDL_GLOBAL_FILTERS_MIN_SIZE` | string | - | Default minimum size |
 | `TDL_GLOBAL_FILTERS_MAX_SIZE` | string | - | Default maximum size |
 | `TDL_GLOBAL_FILTERS_ALLOW_ARCHIVES` | boolean | `false` | Also download archives |
-| `TDL_GLOBAL_FILTERS_ARCHIVE_EXTS` | list | `.zip,.rar,.7z` | Archive extensions (see the known issue above) |
-
-Global include and exclude patterns can only be set in `config.yaml` (`global_filters.include_patterns` and `global_filters.exclude_patterns`).
+| `TDL_GLOBAL_FILTERS_ARCHIVE_EXTS` | list | `.zip,.rar,.7z` | Archive extensions used when archives are allowed |
+| `TDL_GLOBAL_FILTERS_INCLUDE_PATTERNS` | list | - | Default include patterns |
+| `TDL_GLOBAL_FILTERS_EXCLUDE_PATTERNS` | list | - | Default exclude patterns |
+| `TDL_GLOBAL_FILTERS_ONLY_AFTER` | date | - | Default oldest message date |
+| `TDL_GLOBAL_FILTERS_ONLY_BEFORE` | date | - | Default newest message date |
 
 ## Retry Configuration
 
@@ -312,7 +318,7 @@ Example:
 
 ## config.yaml Example
 
-Alternative to environment variables when running from source:
+Can be used alone or together with environment variables:
 
 ```yaml
 api_id: 12345678
@@ -343,4 +349,4 @@ sources:
     name: "Forum Topic"
 ```
 
-**Note:** This file is ignored if any `TDL_` environment variable is set.
+**Note:** Any setting also set through an environment variable takes the environment value.
