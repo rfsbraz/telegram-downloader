@@ -238,7 +238,7 @@ Filter by filename patterns:
 Only download recent posts:
 
 ```yaml
-- TDL_SOURCES_0_FILTERS_MIN_DATE=2026-01-01  # Only 2026 onwards
+- TDL_SOURCES_0_FILTERS_ONLY_AFTER=2026-01-01  # Only 2026 onwards
 ```
 
 ### Adjust Check Frequency

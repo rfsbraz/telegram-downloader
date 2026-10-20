@@ -145,7 +145,7 @@ find personal_backup/ -name "*.mp4" | wc -l
 - TDL_SOURCES_0_FILTERS_EXTENSIONS=.pdf,.doc,.docx,.txt
 
 # Only recent media
-- TDL_SOURCES_0_FILTERS_MIN_DATE=2025-01-01
+- TDL_SOURCES_0_FILTERS_ONLY_AFTER=2025-01-01
 ```
 
 ### Multiple Private Chats
@@ -267,7 +267,7 @@ echo "Documents: $(find personal_backup/ -name "*.pdf" -o -name "*.doc*" | wc -l
     - TDL_SOURCES_0_FILTERS_MAX_SIZE=100MB
 
     # Only recent media
-    - TDL_SOURCES_0_FILTERS_MIN_DATE=2025-01-01
+    - TDL_SOURCES_0_FILTERS_ONLY_AFTER=2025-01-01
     ```
 
 !!! info "Selective Restore"

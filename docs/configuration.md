@@ -230,8 +230,8 @@ Per-source filters override global defaults.
 | `TDL_SOURCES_N_FILTERS_EXTENSIONS` | list | `.pdf,.epub,.mobi` | File extensions (comma-separated, with dots) |
 | `TDL_SOURCES_N_FILTERS_MIN_SIZE` | string | - | Minimum file size (e.g., "100KB", "5MB") |
 | `TDL_SOURCES_N_FILTERS_MAX_SIZE` | string | - | Maximum file size (e.g., "2GB") |
-| `TDL_SOURCES_N_FILTERS_MIN_DATE` | date | - | Minimum message date (ISO format: YYYY-MM-DD) |
-| `TDL_SOURCES_N_FILTERS_MAX_DATE` | date | - | Maximum message date |
+| `TDL_SOURCES_N_FILTERS_ONLY_AFTER` | date | - | Oldest message date to download, inclusive (ISO format: YYYY-MM-DD) |
+| `TDL_SOURCES_N_FILTERS_ONLY_BEFORE` | date | - | Newest message date to download, inclusive |
 | `TDL_SOURCES_N_FILTERS_PATTERNS` | list | - | Filename patterns (comma-separated) |
 
 === "Environment Variables"
@@ -240,7 +240,7 @@ Per-source filters override global defaults.
     - TDL_SOURCES_0_FILTERS_EXTENSIONS=.pdf,.epub,.mobi
     - TDL_SOURCES_0_FILTERS_MIN_SIZE=100KB
     - TDL_SOURCES_0_FILTERS_MAX_SIZE=500MB
-    - TDL_SOURCES_0_FILTERS_MIN_DATE=2026-01-01
+    - TDL_SOURCES_0_FILTERS_ONLY_AFTER=2026-01-01
     - TDL_SOURCES_0_FILTERS_PATTERNS=*ebook*,*book*
     ```
 
@@ -254,11 +254,12 @@ Per-source filters override global defaults.
     extensions = [".pdf", ".epub", ".mobi"]
     min_size = "100KB"
     max_size = "500MB"
-    min_date = "2026-01-01"
+    only_after = "2026-01-01"
     patterns = ["*ebook*", "*book*"]
     ```
 
 **Size format:** Number + unit (KB, MB, GB) or raw bytes
+**Date format:** `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM:SS`, read as UTC. A date alone means midnight at the start of that day, so `ONLY_BEFORE=2026-01-31` stops at the start of 31 January; use `2026-01-31T23:59:59` to include the whole day.
 **Pattern format:** Wildcards (* = any characters, ? = single character) or regex (auto-detected)
 
 ## Global Filter Defaults

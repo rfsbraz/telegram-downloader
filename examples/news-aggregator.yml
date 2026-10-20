@@ -21,7 +21,7 @@ services:
       # Source: News channel with date filter (last 7 days)
       - TDL_SOURCES_0_URL=https://t.me/news_channel
       - TDL_SOURCES_0_FILTERS_EXTENSIONS=.jpg,.png,.mp4
-      - TDL_SOURCES_0_FILTERS_MIN_DATE=2026-01-14  # Replace with 7 days ago
+      - TDL_SOURCES_0_FILTERS_ONLY_AFTER=2026-01-14  # Replace with 7 days ago
 
     volumes:
       - ./news:/downloads
