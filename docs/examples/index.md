@@ -118,7 +118,6 @@ All examples share these core settings:
     ```yaml
     - TDL_NOTIFICATIONS_ENABLED=true
     - TDL_NOTIFICATIONS_DISCORD_WEBHOOK_URL=YOUR_WEBHOOK_URL
-    - TDL_NOTIFICATIONS_DETAIL_LEVEL=summary
     ```
 
     Optional but recommended for monitoring

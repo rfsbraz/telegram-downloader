@@ -143,7 +143,6 @@ The daemon checks for new ebooks every 5 minutes. This is a good balance between
 
 ```yaml
 - TDL_NOTIFICATIONS_ENABLED=true
-- TDL_NOTIFICATIONS_DETAIL_LEVEL=summary
 - TDL_NOTIFICATIONS_DISCORD_WEBHOOK_URL=YOUR_DISCORD_WEBHOOK_URL
 ```
 
@@ -256,19 +255,6 @@ Only download recent posts:
 
 !!! warning "Rate Limiting"
     Checking too frequently (< 60 seconds) may trigger Telegram rate limiting (FloodWait errors). The daemon automatically handles these, but they slow down downloads.
-
-### Notification Detail Levels
-
-```yaml
-# Minimal: Just success/failure
-- TDL_NOTIFICATIONS_DETAIL_LEVEL=minimal
-
-# Summary: Include file counts and errors (recommended)
-- TDL_NOTIFICATIONS_DETAIL_LEVEL=summary
-
-# Detailed: Include filenames and full error messages
-- TDL_NOTIFICATIONS_DETAIL_LEVEL=detailed
-```
 
 ## Troubleshooting
 

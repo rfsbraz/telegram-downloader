@@ -542,6 +542,15 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
     }
 
 
+def warn_ignored_settings(cfg, log) -> None:
+    """Warn about settings that are accepted but have no effect."""
+    if "detail_level" in cfg.notifications.model_fields_set:
+        log.warning(
+            "TDL_NOTIFICATIONS_DETAIL_LEVEL is set but has no effect: "
+            "all notifications have the same content. You can remove it."
+        )
+
+
 def build_notification_manager(cfg, log) -> Optional[NotificationManager]:
     """Build the NotificationManager from config, or None if disabled."""
     notification_manager = None
@@ -608,6 +617,7 @@ async def main():
     # Override log level from daemon config if specified
     if cfg.daemon.log_level:
         log.setLevel(getattr(logging, cfg.daemon.log_level.upper()))
+    warn_ignored_settings(cfg, log)
 
     # Initialize state store (in sessions dir so it persists via volume mount)
     state_db_path = cfg.session_dir / "state.db"

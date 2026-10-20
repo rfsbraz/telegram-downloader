@@ -22,6 +22,19 @@ class DaemonConfig(BaseModel):
     health_file: Path = Field(default=Path("/app/health_status.txt"))
     log_level: Optional[str] = None
 
+    @field_validator("log_level")
+    @classmethod
+    def validate_log_level(cls, v: Optional[str]) -> Optional[str]:
+        """Accept standard level names in any case, reject anything else."""
+        if v is None or not v.strip():
+            return None
+        level = v.strip().upper()
+        if level not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+            raise ValueError(
+                f"daemon log_level must be DEBUG, INFO, WARNING, ERROR or CRITICAL, got {v!r}"
+            )
+        return level
+
     @field_validator("check_interval")
     @classmethod
     def validate_check_interval(cls, v: int) -> int:
@@ -159,8 +172,9 @@ class Config(BaseModel):
     allow_archives: bool = Field(default=False)
     archive_exts: list[str] = Field(default=[".zip", ".rar", ".7z"])
 
-    # Retry configuration
-    max_retries: int = Field(default=2, ge=0)
+    # Retry configuration. Attempts per file within one check, counting the
+    # first try, so 0 would mean never downloading anything.
+    max_retries: int = Field(default=2, ge=1)
     base_delay: int = Field(default=2, ge=1)
     max_delay: int = Field(default=60, ge=1)
 

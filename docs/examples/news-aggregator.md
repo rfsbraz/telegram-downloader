@@ -43,7 +43,6 @@ services:
       # Notifications
       - TDL_NOTIFICATIONS_ENABLED=true
       - TDL_NOTIFICATIONS_DISCORD_WEBHOOK_URL=YOUR_WEBHOOK_URL
-      - TDL_NOTIFICATIONS_DETAIL_LEVEL=summary
 
       # Source 1: Breaking News Channel
       - TDL_SOURCES_0_URL=https://t.me/breaking_news_channel
@@ -153,19 +152,6 @@ Discord alerts for:
 # Limit individual file sizes
 - TDL_SOURCES_0_FILTERS_MIN_SIZE=50KB
 - TDL_SOURCES_0_FILTERS_MAX_SIZE=50MB
-```
-
-### Multiple Detail Levels
-
-```yaml
-# Minimal: Just counts
-- TDL_NOTIFICATIONS_DETAIL_LEVEL=minimal
-
-# Summary: Counts + source info (recommended for news)
-- TDL_NOTIFICATIONS_DETAIL_LEVEL=summary
-
-# Detailed: Full file listings
-- TDL_NOTIFICATIONS_DETAIL_LEVEL=detailed
 ```
 
 ## Use Cases

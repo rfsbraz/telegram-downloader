@@ -138,7 +138,6 @@ Add Discord webhook to get notified:
 ```yaml
 - TDL_NOTIFICATIONS_ENABLED=true
 - TDL_NOTIFICATIONS_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/123/abc
-- TDL_NOTIFICATIONS_DETAIL_LEVEL=summary
 ```
 
 Restart: `docker compose restart`

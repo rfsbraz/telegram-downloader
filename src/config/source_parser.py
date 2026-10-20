@@ -231,7 +231,12 @@ async def parse_sources(
 
                 merged_filters = GlobalFilters(
                     extensions=sf.extensions if sf.extensions else gf.extensions,
-                    allow_archives=sf.allow_archives,
+                    # Only an explicit per-source value overrides the global one
+                    allow_archives=(
+                        sf.allow_archives
+                        if "allow_archives" in sf.model_fields_set
+                        else gf.allow_archives
+                    ),
                     archive_exts=sf.archive_exts if sf.archive_exts else gf.archive_exts,
                     min_size=sf.min_size if sf.min_size is not None else gf.min_size,
                     max_size=sf.max_size if sf.max_size is not None else gf.max_size,

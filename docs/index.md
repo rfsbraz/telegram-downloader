@@ -191,7 +191,6 @@ All examples include complete Docker Compose configurations:
 ```yaml
 - TDL_NOTIFICATIONS_ENABLED=true
 - TDL_NOTIFICATIONS_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
-- TDL_NOTIFICATIONS_DETAIL_LEVEL=summary
 ```
 
 See [Configuration Reference](configuration.md) for complete documentation.
