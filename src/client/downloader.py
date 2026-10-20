@@ -9,6 +9,7 @@ Implements robust download functionality with:
 """
 
 import asyncio
+import os
 import logging
 import time
 from contextvars import ContextVar
@@ -20,6 +21,7 @@ from pyrogram.types import Message
 from pyrogram.errors import FloodWait, FileReferenceExpired
 
 from src.config.schema import Config
+from src.organization.deduplicator import is_duplicate, resolve_conflict
 from src.client.ratelimit import RateLimiter
 
 # Extra seconds added to every FloodWait before retrying
@@ -131,8 +133,12 @@ async def download_media_with_retry(
     # Create parent directories if needed
     dest_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Use temporary .partial file during download
-    dest_temp = dest_path.with_suffix(dest_path.suffix + ".partial")
+    # Use temporary .partial file during download. The message ID makes the
+    # temp name unique so concurrent downloads of same-named files never
+    # stream into the same file.
+    dest_temp = dest_path.with_suffix(
+        dest_path.suffix + f".{message.id}.partial"
+    )
 
     # Track cumulative progress so the rate limiter sees byte deltas
     progress_state = {"last": 0}
@@ -258,8 +264,40 @@ async def download_media_with_retry(
                         )
                         return False
 
-            # Atomic rename on success (prevents partial files in download dir)
-            dest_temp.rename(dest_path)
+            # Publish without clobbering. Path.rename overwrites on POSIX, so
+            # two concurrent finishes that both saw dest_path absent could still
+            # drop one file. Reserve the name with O_EXCL, then atomically
+            # replace that empty placeholder with the finished .partial file.
+            while True:
+                try:
+                    fd = os.open(
+                        dest_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY
+                    )
+                    os.close(fd)
+                except FileExistsError:
+                    if is_duplicate(dest_path, dest_temp.stat().st_size):
+                        dest_temp.unlink()
+                        log.info(
+                            f"Skip duplicate at rename: {dest_path.name} "
+                            "(same size, downloaded concurrently)"
+                        )
+                        return True
+                    resolved = resolve_conflict(dest_path)
+                    log.info(
+                        f"Conflict at rename: {dest_path.name} → {resolved.name}"
+                    )
+                    dest_path = resolved
+                    continue
+                try:
+                    os.replace(dest_temp, dest_path)
+                except Exception:
+                    # Leave no empty placeholder behind if replace fails
+                    try:
+                        dest_path.unlink()
+                    except OSError:
+                        pass
+                    raise
+                break
             log.info(f"Download complete: {dest_path.name}")
             return True
 

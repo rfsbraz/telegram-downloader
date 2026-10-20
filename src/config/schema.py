@@ -119,6 +119,10 @@ class Config(BaseModel):
     post_download_hook: Optional[str] = None
     post_download_hook_timeout: int = Field(default=300, ge=1, le=86400)
 
+    # Give up on a pending message after this many failed download attempts
+    # (each attempt already includes the per-download retry budget)
+    max_download_attempts: int = Field(default=5, ge=1)
+
     # Logging
     verbosity: Literal["quiet", "normal", "verbose"] = Field(default="normal")
 

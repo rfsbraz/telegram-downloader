@@ -54,6 +54,44 @@ class TestCursorStoreBasics:
             store.set("test_source", 200)
             assert store.get("test_source") == 200
 
+    def test_set_is_monotonic(self, memory_db):
+        """set() must never move the cursor backwards.
+
+        Concurrent downloads complete out of order; a lower message ID
+        finishing last must not regress the cursor.
+        """
+        with CursorStore(memory_db) as store:
+            store.set("test_source", 300)
+            store.set("test_source", 100)
+            assert store.get("test_source") == 300
+
+            store.set("test_source", 400)
+            assert store.get("test_source") == 400
+
+    def test_lower_set_does_not_bump_updated_at(self, memory_db):
+        """A regressing set must not rewrite updated_at."""
+        import sqlite3
+        import time
+
+        with CursorStore(memory_db) as store:
+            store.set("test_source", 300)
+            conn = sqlite3.connect(memory_db)
+            before = conn.execute(
+                "SELECT updated_at FROM cursors WHERE source_key = ?",
+                ("test_source",),
+            ).fetchone()[0]
+            conn.close()
+            time.sleep(1.1)  # SQLite CURRENT_TIMESTAMP is second resolution
+            store.set("test_source", 100)
+            conn = sqlite3.connect(memory_db)
+            after = conn.execute(
+                "SELECT updated_at, last_message_id FROM cursors WHERE source_key = ?",
+                ("test_source",),
+            ).fetchone()
+            conn.close()
+            assert after[1] == 300
+            assert after[0] == before
+
     def test_multiple_sources(self, memory_db):
         """Should handle multiple source keys independently."""
         with CursorStore(memory_db) as store:

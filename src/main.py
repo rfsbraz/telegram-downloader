@@ -406,7 +406,11 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
             total_downloaded = 0
 
             while True:
-                batch_ids = pending.get_oldest(cursor_key, batch_size)
+                # Exclude messages that exhausted their attempt budget so one
+                # permanently failing message can't loop this check forever
+                batch_ids = pending.get_oldest(
+                    cursor_key, batch_size, cfg.max_download_attempts
+                )
                 if not batch_ids:
                     break
 
@@ -449,12 +453,36 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
                 for key in totals:
                     totals[key] += batch_stats[key]
 
+                # Track failures so repeatedly failing messages are eventually
+                # dead-lettered instead of retried indefinitely
+                if failed_ids:
+                    pending.increment_attempts(cursor_key, list(failed_ids))
+                    still_pending = pending.count(
+                        cursor_key, cfg.max_download_attempts
+                    )
+                    exhausted_now = pending.count_exhausted(
+                        cursor_key, cfg.max_download_attempts
+                    )
+                    log.warning(
+                        f"{len(failed_ids)} download(s) failed "
+                        f"({still_pending} still within attempt budget, "
+                        f"{exhausted_now} exhausted after "
+                        f"{cfg.max_download_attempts} attempts)"
+                    )
+
                 if max_downloads:
                     break  # Capped mode: one batch only
 
-            remaining = pending.count(cursor_key)
+            remaining = pending.count(cursor_key, cfg.max_download_attempts)
             if remaining:
                 log.info(f"{remaining} message(s) still pending for next run")
+            exhausted = pending.count_exhausted(cursor_key, cfg.max_download_attempts)
+            if exhausted:
+                log.error(
+                    f"{exhausted} message(s) gave up after {cfg.max_download_attempts} "
+                    f"failed attempts and will not be retried (kept in pending table "
+                    f"for inspection)"
+                )
             log.info(f"Downloaded {total_downloaded} files")
         except (tg_errors.FloodWait, tg_errors.Unauthorized):
             # Account-wide errors hit every later source too: let the
