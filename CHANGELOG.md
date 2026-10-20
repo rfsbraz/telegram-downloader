@@ -5,6 +5,20 @@
 
 * add missing dependency ([4542021](https://github.com/rfsbraz/telegram-downloader/commit/454202198134f12a4e8561bde262b69cad10035b))
 
+## [1.5.0](https://github.com/rfsbraz/telegram-downloader/compare/v1.4.2...v1.5.0) (2026-10-20)
+
+
+### Features
+
+* **hooks:** run configurable command after each successful download ([#55](https://github.com/rfsbraz/telegram-downloader/issues/55)) ([01d422c](https://github.com/rfsbraz/telegram-downloader/commit/01d422ccb9b9788b481ddfd23e3e3e04ca2c7f41))
+
+
+### Bug Fixes
+
+* **config:** let env vars override the config file and read list filters from env ([#99](https://github.com/rfsbraz/telegram-downloader/issues/99)) ([5917eff](https://github.com/rfsbraz/telegram-downloader/commit/5917eff7536eca4a707f68bdb9f7dc6762af7214))
+* **config:** validate retries and log level, fall back to global allow_archives ([#101](https://github.com/rfsbraz/telegram-downloader/issues/101)) ([d232ffe](https://github.com/rfsbraz/telegram-downloader/commit/d232ffe12681395c6d85da14d9391ffa5a54fcf6))
+* **filters:** make source date filters load and compare ([#95](https://github.com/rfsbraz/telegram-downloader/issues/95)) ([f19310c](https://github.com/rfsbraz/telegram-downloader/commit/f19310c039b8722a9eaf4103996cccea3a359e59))
+
 ## [1.4.2](https://github.com/rfsbraz/telegram-downloader/compare/v1.4.1...v1.4.2) (2026-10-20)
 
 
