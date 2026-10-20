@@ -265,3 +265,131 @@ class TestLoadConfig:
         with pytest.raises(ConfigError) as exc_info:
             load_config(str(config_file))
         assert "validation failed" in str(exc_info.value).lower()
+
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def dockerfile_tdl_defaults() -> dict[str, str]:
+    """TDL_* defaults the Docker image sets with ENV, read from the Dockerfile."""
+    import re
+
+    text = (REPO_ROOT / "Dockerfile").read_text()
+    # Join ENV continuation lines, then collect KEY=VALUE pairs
+    text = text.replace("\\\n", " ")
+    defaults = {}
+    for line in text.splitlines():
+        if line.strip().startswith("ENV "):
+            defaults.update(re.findall(r"(TDL_[A-Z0-9_]+)=(\S+)", line))
+    return defaults
+
+
+class TestEnvOverridesFile:
+    """Env vars override single settings; the config file fills the rest."""
+
+    def test_dockerfile_sets_tdl_defaults(self):
+        # Guard: the precedence test below is only meaningful if the image
+        # really sets TDL_ variables of its own
+        assert "TDL_DOWNLOAD_DIR" in dockerfile_tdl_defaults()
+
+    def test_mounted_file_with_image_defaults(self, clean_env, monkeypatch, yaml_config_file):
+        for key, value in dockerfile_tdl_defaults().items():
+            monkeypatch.setenv(key, value)
+        config_file = yaml_config_file("""
+api_id: 12345
+api_hash: abc123def456789012345678901234ab
+daemon:
+  enabled: true
+  check_interval: 900
+sources:
+  - url: https://t.me/from_file
+    filters:
+      include_patterns: ["*book*"]
+""")
+
+        config = load_config(str(config_file))
+
+        # From the file: the image does not set these
+        assert config.api_id == 12345
+        assert config.daemon.enabled is True
+        assert config.daemon.check_interval == 900
+        assert config.sources[0].url == "https://t.me/from_file"
+        assert config.sources[0].filters.include_patterns == ["*book*"]
+        # From the image's env, in the same daemon section
+        assert config.daemon.health_file == Path("/app/health_status.txt")
+        assert config.download_dir == Path("/downloads")
+
+    def test_env_beats_file_for_the_same_setting(self, clean_env, monkeypatch, yaml_config_file):
+        config_file = yaml_config_file("""
+api_id: 12345
+api_hash: abc123def456789012345678901234ab
+daemon:
+  enabled: true
+  check_interval: 900
+""")
+        monkeypatch.setenv("TDL_DAEMON_CHECK_INTERVAL", "120")
+
+        config = load_config(str(config_file))
+
+        assert config.daemon.check_interval == 120
+        assert config.daemon.enabled is True
+
+    def test_env_sources_replace_file_sources(self, clean_env, monkeypatch, yaml_config_file):
+        config_file = yaml_config_file("""
+api_id: 12345
+api_hash: abc123def456789012345678901234ab
+sources:
+  - url: https://t.me/file_one
+  - url: https://t.me/file_two
+""")
+        monkeypatch.setenv("TDL_SOURCES_0_URL", "https://t.me/env_one")
+
+        config = load_config(str(config_file))
+
+        assert [s.url for s in config.sources] == ["https://t.me/env_one"]
+
+    def test_env_without_file_still_works(self, clean_env, monkeypatch):
+        monkeypatch.setenv("TDL_API_ID", "12345")
+        monkeypatch.setenv("TDL_API_HASH", "abc123")
+
+        config = load_config("/nonexistent/config.yaml")
+
+        assert config.api_id == 12345
+
+
+class TestEnvLists:
+    """List settings set through env are split on commas."""
+
+    @pytest.fixture
+    def base_env(self, clean_env, monkeypatch):
+        monkeypatch.setenv("TDL_API_ID", "12345")
+        monkeypatch.setenv("TDL_API_HASH", "abc123")
+        monkeypatch.setenv("TDL_SOURCES_0_URL", "https://t.me/channel")
+
+    def test_source_list_filters(self, base_env, monkeypatch):
+        monkeypatch.setenv("TDL_SOURCES_0_FILTERS_INCLUDE_PATTERNS", "*ebook*, *book*")
+        monkeypatch.setenv("TDL_SOURCES_0_FILTERS_EXCLUDE_PATTERNS", "*sample*")
+        monkeypatch.setenv("TDL_SOURCES_0_FILTERS_ARCHIVE_EXTS", ".zip,.rar")
+
+        filters = load_config("/nonexistent/config.yaml").sources[0].filters
+
+        assert filters.include_patterns == ["*ebook*", "*book*"]
+        assert filters.exclude_patterns == ["*sample*"]
+        assert filters.archive_exts == [".zip", ".rar"]
+
+    def test_global_list_and_date_filters(self, base_env, monkeypatch):
+        from datetime import datetime
+
+        monkeypatch.setenv("TDL_GLOBAL_FILTERS_INCLUDE_PATTERNS", "*ebook*")
+        monkeypatch.setenv("TDL_GLOBAL_FILTERS_EXCLUDE_PATTERNS", "*sample*,*preview*")
+        monkeypatch.setenv("TDL_GLOBAL_FILTERS_ARCHIVE_EXTS", ".7z")
+        monkeypatch.setenv("TDL_GLOBAL_FILTERS_ONLY_AFTER", "2026-01-01")
+        monkeypatch.setenv("TDL_GLOBAL_FILTERS_ONLY_BEFORE", "2026-01-31T23:59:59")
+
+        gf = load_config("/nonexistent/config.yaml").global_filters
+
+        assert gf.include_patterns == ["*ebook*"]
+        assert gf.exclude_patterns == ["*sample*", "*preview*"]
+        assert gf.archive_exts == [".7z"]
+        assert gf.only_after == datetime(2026, 1, 1)
+        assert gf.only_before == datetime(2026, 1, 31, 23, 59, 59)
