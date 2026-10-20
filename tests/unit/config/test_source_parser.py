@@ -109,3 +109,49 @@ class TestValidateSourceAccess:
         accessible = await validate_source_access(entries, client)
 
         assert accessible == [entries[0], entries[2]]
+
+
+class TestDateFilters:
+    """only_after / only_before on a source must load and filter (no crash)."""
+
+    @staticmethod
+    def make_message(ts: int):
+        """Message shaped like Pyrogram's: date from its own timestamp helper."""
+        from pyrogram.utils import timestamp_to_datetime
+
+        msg = MagicMock()
+        msg.date = timestamp_to_datetime(ts)
+        msg.document.file_name = "book.pdf"
+        msg.document.file_size = 1024
+        return msg
+
+    async def test_source_date_filters_from_env(self, monkeypatch):
+        import os
+        from datetime import datetime, timezone
+
+        from src.config.loader import load_config
+
+        for key in list(os.environ):
+            if key.startswith("TDL_"):
+                monkeypatch.delenv(key)
+        monkeypatch.setenv("TDL_API_ID", "12345")
+        monkeypatch.setenv("TDL_API_HASH", "abc123")
+        monkeypatch.setenv("TDL_SOURCES_0_URL", "https://t.me/channel_one")
+        monkeypatch.setenv("TDL_SOURCES_0_FILTERS_ONLY_AFTER", "2026-01-01")
+        monkeypatch.setenv("TDL_SOURCES_0_FILTERS_ONLY_BEFORE", "2026-01-31")
+
+        config = load_config()
+        client = MagicMock()
+        client.get_chat = AsyncMock(return_value=make_chat(-100111))
+
+        results = await parse_sources(config, client)
+
+        assert len(results) == 1
+        composite = results[0][1]
+
+        def ts(*args):
+            return int(datetime(*args, tzinfo=timezone.utc).timestamp())
+
+        assert await composite.matches(self.make_message(ts(2026, 1, 15)))
+        assert not await composite.matches(self.make_message(ts(2025, 12, 31)))
+        assert not await composite.matches(self.make_message(ts(2026, 2, 1)))
