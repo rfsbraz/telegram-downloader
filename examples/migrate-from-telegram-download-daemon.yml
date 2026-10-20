@@ -1,0 +1,43 @@
+# Moving from telegram-download-daemon
+#
+# Same job as alfem/telegram-download-daemon's docker-compose.yml:
+# one channel, every file lands in one folder.
+# Guide: docs/migrating-from-telegram-download-daemon.md
+
+services:
+  telegram-downloader:
+    image: rfsbraz/telegram-downloader:latest
+    container_name: telegram-downloader
+    restart: unless-stopped
+
+    environment:
+      # Was TELEGRAM_DAEMON_API_ID and TELEGRAM_DAEMON_API_HASH
+      - TDL_API_ID=YOUR_API_ID
+      - TDL_API_HASH=YOUR_API_HASH
+      - TDL_PHONE_NUMBER=YOUR_PHONE_NUMBER
+
+      # Was TELEGRAM_DAEMON_CHANNEL=1234567890
+      - TDL_SOURCES_0_URL=https://t.me/c/1234567890
+
+      # Was TELEGRAM_DAEMON_DEST=/downloads (the image default is /downloads)
+      - TDL_DOWNLOAD_DIR=/downloads
+      # One folder for everything, like the daemon (default is one folder per source)
+      - TDL_FLAT_STRUCTURE=true
+
+      # Was TELEGRAM_DAEMON_WORKERS=2 (1 to 10, default 1)
+      - TDL_MAX_CONCURRENT_DOWNLOADS=2
+
+      # Download every supported file type (default is .pdf,.epub,.mobi)
+      - TDL_GLOBAL_FILTERS_EXTENSIONS=
+
+      # Keep running and check for new files every 5 minutes
+      - TDL_DAEMON_ENABLED=true
+      - TDL_DAEMON_CHECK_INTERVAL=300
+
+    volumes:
+      - ./downloads:/downloads
+      # Was TELEGRAM_DAEMON_SESSION_PATH=/session
+      - ./sessions:/app/.sessions
+
+    stdin_open: true
+    tty: true

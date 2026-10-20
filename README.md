@@ -7,6 +7,8 @@
 
 A self-hosted daemon that automatically downloads media from Telegram channels, groups, and forum topics. Configure once, run forever.
 
+Looking for a telegram-download-daemon alternative? See [Moving from telegram-download-daemon](https://rfsbraz.github.io/telegram-downloader/migrating-from-telegram-download-daemon/) for a settings map and a before and after `docker-compose.yml`.
+
 [**Documentation**](https://rfsbraz.github.io/telegram-downloader/) | [**Quick Start**](#quick-start) | [**Examples**](#examples)
 
 ## Why?
