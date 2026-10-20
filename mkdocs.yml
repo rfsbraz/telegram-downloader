@@ -173,6 +173,7 @@ nav:
   - Getting Started:
     - Quick Start: quickstart.md
     - Configuration: configuration.md
+    - Moving from telegram-download-daemon: migrating-from-telegram-download-daemon.md
 
   - Operations:
     - Troubleshooting: troubleshooting.md
