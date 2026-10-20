@@ -18,7 +18,8 @@ class DateFilter(BaseFilter):
     Both parameters are optional and timezone-aware (UTC).
 
     CRITICAL: All datetimes are converted to UTC to prevent naive datetime
-    comparison bugs. Pyrogram message.date is already timezone-aware UTC.
+    comparison bugs. Pyrogram message.date is naive local time
+    (datetime.fromtimestamp), so it is converted to aware UTC before comparing.
     """
 
     def __init__(
@@ -61,6 +62,9 @@ class DateFilter(BaseFilter):
             return False
 
         msg_date = message.date
+        if msg_date.tzinfo is None:
+            # Naive means local time, which astimezone() assumes
+            msg_date = msg_date.astimezone(timezone.utc)
 
         # Check minimum date constraint
         if self.only_after is not None and msg_date < self.only_after:

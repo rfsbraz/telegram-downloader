@@ -221,7 +221,7 @@ Format: `TDL_SOURCES_N_KEY` where N is the source index (0, 1, 2, ...)
 
 ### Filter Configuration
 
-Per-source filters override global defaults. A per-source value replaces the global one; a list or size left empty falls back to the global value.
+Per-source filters override global defaults. A per-source value replaces the global one; a list, size or date left empty falls back to the global value.
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
@@ -230,8 +230,8 @@ Per-source filters override global defaults. A per-source value replaces the glo
 | `TDL_SOURCES_N_FILTERS_ARCHIVE_EXTS` | list | global value | Archive extensions used when archives are allowed |
 | `TDL_SOURCES_N_FILTERS_MIN_SIZE` | string | - | Minimum file size (e.g., "100KB", "5MB") |
 | `TDL_SOURCES_N_FILTERS_MAX_SIZE` | string | - | Maximum file size (e.g., "2GB") |
-| `TDL_SOURCES_N_FILTERS_MIN_DATE` | date | - | Minimum message date (ISO format: YYYY-MM-DD) |
-| `TDL_SOURCES_N_FILTERS_MAX_DATE` | date | - | Maximum message date |
+| `TDL_SOURCES_N_FILTERS_ONLY_AFTER` | date | - | Oldest message date to download, inclusive (ISO format: YYYY-MM-DD) |
+| `TDL_SOURCES_N_FILTERS_ONLY_BEFORE` | date | - | Newest message date to download, inclusive |
 | `TDL_SOURCES_N_FILTERS_INCLUDE_PATTERNS` | list | - | Only download files whose name matches one of these |
 | `TDL_SOURCES_N_FILTERS_EXCLUDE_PATTERNS` | list | - | Skip files whose name matches one of these (checked first) |
 
@@ -241,7 +241,7 @@ Per-source filters override global defaults. A per-source value replaces the glo
     - TDL_SOURCES_0_FILTERS_EXTENSIONS=.pdf,.epub,.mobi
     - TDL_SOURCES_0_FILTERS_MIN_SIZE=100KB
     - TDL_SOURCES_0_FILTERS_MAX_SIZE=500MB
-    - TDL_SOURCES_0_FILTERS_MIN_DATE=2026-01-01
+    - TDL_SOURCES_0_FILTERS_ONLY_AFTER=2026-01-01
     ```
 
 === "config.yaml"
@@ -253,7 +253,7 @@ Per-source filters override global defaults. A per-source value replaces the glo
           extensions: [".pdf", ".epub", ".mobi"]
           min_size: "100KB"
           max_size: "500MB"
-          min_date: "2026-01-01"
+          only_after: "2026-01-01"
           include_patterns: ["*ebook*", "*book*"]
     ```
 
@@ -261,6 +261,7 @@ Per-source filters override global defaults. A per-source value replaces the glo
     `INCLUDE_PATTERNS`, `EXCLUDE_PATTERNS` and `ARCHIVE_EXTS` are currently rejected when set through environment variables (the value is not split into a list, so startup fails with "Input should be a valid list"). Until that is fixed they only work from `config.yaml`.
 
 **Size format:** Number + unit: B, KB, MB, GB or TB, 1024-based (e.g., `500KB`, `1.5GB`). A bare number without a unit is rejected at startup.
+**Date format:** `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM:SS`, read as UTC. A date alone means midnight at the start of that day, so `ONLY_BEFORE=2026-01-31` stops at the start of 31 January; use `2026-01-31T23:59:59` to include the whole day.
 **Pattern format:** Wildcards (`*` = any characters, `?` = single character), or a regex when the pattern starts with `^`, ends with `$`, or contains any of `( ) [ ] { } | +`. Patterns are matched against the file name.
 
 ## Global Filter Defaults

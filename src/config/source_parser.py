@@ -152,8 +152,8 @@ def build_filters(filter_config: GlobalFilters) -> CompositeFilter:
     if filter_config.only_after or filter_config.only_before:
         filters.append(
             DateFilter(
-                after=filter_config.only_after,
-                before=filter_config.only_before,
+                only_after=filter_config.only_after,
+                only_before=filter_config.only_before,
             )
         )
 

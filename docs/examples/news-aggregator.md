@@ -49,7 +49,7 @@ services:
       - TDL_SOURCES_0_URL=https://t.me/breaking_news_channel
       - TDL_SOURCES_0_NAME=Breaking News
       - TDL_SOURCES_0_FILTERS_EXTENSIONS=.jpg,.png,.mp4,.pdf
-      - TDL_SOURCES_0_FILTERS_MIN_DATE=2026-01-01
+      - TDL_SOURCES_0_FILTERS_ONLY_AFTER=2026-01-01
 
       # Source 2: Tech News Channel
       - TDL_SOURCES_1_URL=https://t.me/tech_news_channel
@@ -96,7 +96,7 @@ docker compose logs -f  # Authenticate on first run
 ### Date Filtering
 
 ```yaml
-- TDL_SOURCES_0_FILTERS_MIN_DATE=2026-01-01  # Only recent news
+- TDL_SOURCES_0_FILTERS_ONLY_AFTER=2026-01-01  # Only recent news
 ```
 
 ### Media Types
@@ -200,8 +200,8 @@ Track breaking stories across multiple sources in real-time.
     Use date filtering to limit scope:
 
     ```yaml
-    - TDL_SOURCES_0_FILTERS_MIN_DATE=2026-01-15
-    - TDL_SOURCES_0_FILTERS_MAX_DATE=2026-01-21
+    - TDL_SOURCES_0_FILTERS_ONLY_AFTER=2026-01-15
+    - TDL_SOURCES_0_FILTERS_ONLY_BEFORE=2026-01-21
     ```
 
 !!! warning "Rate Limiting"
