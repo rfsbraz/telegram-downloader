@@ -15,13 +15,6 @@ from src.config.schema import Config
 
 DOC = Path(__file__).resolve().parents[3] / "docs" / "configuration.md"
 
-# Date filter names are being fixed in #95; drop these once it merges.
-KNOWN_DATE_FILTER_NAMES = {
-    "TDL_SOURCES_0_FILTERS_MIN_DATE",
-    "TDL_SOURCES_0_FILTERS_MAX_DATE",
-}
-
-
 def documented_env_vars() -> list[str]:
     names = set()
     for line in DOC.read_text(encoding="utf-8").splitlines():
@@ -33,7 +26,7 @@ def documented_env_vars() -> list[str]:
             if match:
                 names.add(match.group(1))
     # TDL_SOURCES_N_* in tables means any index
-    return sorted({n.replace("_N_", "_0_") for n in names} - KNOWN_DATE_FILTER_NAMES)
+    return sorted({n.replace("_N_", "_0_") for n in names})
 
 
 def unknown_keys(data, model: type[BaseModel], prefix: str = "") -> list[str]:
