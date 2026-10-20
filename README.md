@@ -149,7 +149,6 @@ closes is never interrupted. Both settings default to unrestricted.
 ```yaml
 - TDL_NOTIFICATIONS_ENABLED=true
 - TDL_NOTIFICATIONS_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
-- TDL_NOTIFICATIONS_DETAIL_LEVEL=summary  # minimal, summary, or detailed
 ```
 
 ### Docker Environment

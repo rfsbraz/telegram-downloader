@@ -308,11 +308,6 @@ Increase throttle period:
 - TDL_NOTIFICATIONS_THROTTLE_SECONDS=300  # 5 minutes between notifications
 ```
 
-Or reduce detail level:
-```yaml
-- TDL_NOTIFICATIONS_DETAIL_LEVEL=minimal  # Status only
-```
-
 ## Performance Issues
 
 ### High Memory Usage

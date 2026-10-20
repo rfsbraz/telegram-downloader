@@ -121,7 +121,7 @@ Controls continuous background operation.
 | `TDL_DAEMON_ENABLED` | boolean | `false` | Enable daemon mode |
 | `TDL_DAEMON_CHECK_INTERVAL` | integer | `300` | Seconds between checks (60-86400) |
 | `TDL_DAEMON_HEALTH_FILE` | path | `/app/health_status.txt` | Health check file path |
-| `TDL_DAEMON_LOG_LEVEL` | string | unset | Log level (DEBUG/INFO/WARNING/ERROR). When unset, `TDL_VERBOSITY` decides (INFO by default) |
+| `TDL_DAEMON_LOG_LEVEL` | string | unset | Log level: DEBUG, INFO, WARNING, ERROR or CRITICAL, any case. Any other value stops startup with a config error. When unset, `TDL_VERBOSITY` decides (INFO by default) |
 
 === "Environment Variables"
 
@@ -147,7 +147,6 @@ Discord webhooks and generic HTTP POST notifications. Nothing is sent unless `TD
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `TDL_NOTIFICATIONS_ENABLED` | boolean | `false` | Enable notifications |
-| `TDL_NOTIFICATIONS_DETAIL_LEVEL` | string | `summary` | Accepted values: minimal/summary/detailed. Not used yet: every notification has the same content |
 | `TDL_NOTIFICATIONS_THROTTLE_SECONDS` | integer | `60` | Minimum seconds between notifications (10-3600) |
 | `TDL_NOTIFICATIONS_DISCORD_WEBHOOK_URL` | URL | - | Discord webhook URL |
 | `TDL_NOTIFICATIONS_DISCORD_USERNAME` | string | `Telegram Downloader` | Discord bot username |
@@ -157,7 +156,6 @@ Discord webhooks and generic HTTP POST notifications. Nothing is sent unless `TD
 
     ```yaml
     - TDL_NOTIFICATIONS_ENABLED=true
-    - TDL_NOTIFICATIONS_DETAIL_LEVEL=summary
     - TDL_NOTIFICATIONS_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/123/abc
     ```
 
@@ -166,7 +164,6 @@ Discord webhooks and generic HTTP POST notifications. Nothing is sent unless `TD
     ```yaml
     notifications:
       enabled: true
-      detail_level: "summary"
       discord_webhook_url: "https://discord.com/api/webhooks/123/abc"
     ```
 
@@ -226,7 +223,7 @@ Per-source filters override global defaults. A per-source value replaces the glo
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `TDL_SOURCES_N_FILTERS_EXTENSIONS` | list | global value | File extensions (comma-separated, with dots) |
-| `TDL_SOURCES_N_FILTERS_ALLOW_ARCHIVES` | boolean | `false` | Also download archives. Does not fall back to the global value |
+| `TDL_SOURCES_N_FILTERS_ALLOW_ARCHIVES` | boolean | global value | Also download archives |
 | `TDL_SOURCES_N_FILTERS_ARCHIVE_EXTS` | list | global value | Archive extensions used when archives are allowed |
 | `TDL_SOURCES_N_FILTERS_MIN_SIZE` | string | - | Minimum file size (e.g., "100KB", "5MB") |
 | `TDL_SOURCES_N_FILTERS_MAX_SIZE` | string | - | Maximum file size (e.g., "2GB") |
@@ -284,7 +281,7 @@ How a failed download is retried within one check.
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `TDL_MAX_RETRIES` | integer | `2` | Attempts per file within one check, counting the first try (2 = one try and one retry) |
+| `TDL_MAX_RETRIES` | integer | `2` | Attempts per file within one check, counting the first try (2 = one try and one retry). Minimum 1 |
 | `TDL_BASE_DELAY` | integer | `2` | Seconds before the first retry, doubled for each later retry (minimum 1) |
 | `TDL_MAX_DELAY` | integer | `60` | Upper limit for the delay between retries, in seconds (minimum 1) |
 | `TDL_MAX_DOWNLOAD_ATTEMPTS` | integer | `5` | Checks a file is retried in before it is given up on (minimum 1) |
@@ -329,7 +326,6 @@ daemon:
 
 notifications:
   enabled: true
-  detail_level: "summary"
   discord_webhook_url: "https://discord.com/api/webhooks/123/abc"
 
 sources:

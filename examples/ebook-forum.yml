@@ -23,7 +23,6 @@ services:
 
       # Notifications: Discord webhook for completion updates
       - TDL_NOTIFICATIONS_ENABLED=true
-      - TDL_NOTIFICATIONS_DETAIL_LEVEL=summary
       - TDL_NOTIFICATIONS_DISCORD_WEBHOOK_URL=YOUR_DISCORD_WEBHOOK_URL
 
       # Source: Ebook forum topic (replace with your forum URL)
