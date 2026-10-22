@@ -15,6 +15,14 @@ updates:
       python-packages:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      python-packages-major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
 
   # Docker base images
   - package-ecosystem: "docker"
@@ -26,6 +34,13 @@ updates:
     labels:
       - "dependencies"
       - "docker"
+    groups:
+      docker-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+      docker-major:
+        patterns: ["*"]
+        update-types: ["major"]
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
@@ -41,3 +56,11 @@ updates:
       actions:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      actions-major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
