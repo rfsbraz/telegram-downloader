@@ -1,17 +1,13 @@
 ## Summary
 
-<!-- What does this PR do? Keep it brief. -->
+<!-- One or two lines: what changes and why. -->
 
-## Type of Change
+Closes #
 
-- [ ] Bug fix
-- [ ] New feature
-- [ ] Refactoring (no functional changes)
-- [ ] Documentation
-- [ ] CI/CD or build
-- [ ] Dependencies
+## Screenshots
 
-## Checklist
+<!-- UI changes only. Delete this section otherwise. -->
 
-- [ ] Tests pass (`make test`)
-- [ ] Documentation updated (if applicable)
+## Tested
+
+<!-- One line: what you ran, for example `make test`. -->
