@@ -43,7 +43,17 @@ mkdocs serve       # local preview at http://localhost:8000
 2. Make your changes
 3. Run `make test` and make sure everything passes
 4. Update documentation if your change affects user-facing behavior
-5. Open a pull request
+5. Open a pull request and fill in the template, including the AI use section
+
+### Low-effort and automated PRs
+
+Telegram Media Downloader is maintained in my spare time, and every PR takes real time to review. I'm happy to get contributions from people who use Telegram Media Downloader and want to make it better.
+
+I will close, without review, PRs that look like contribution farming: accounts opening many PRs across unrelated projects, or changes made mainly to collect contributions rather than to fix something you ran into. This applies even when the change itself is correct.
+
+AI-assisted PRs are fine if you've read and understood the change and can answer questions about it. Please say so in the PR.
+
+The easiest way to get a PR merged is to start with an issue, agree on the approach there, and then open the PR.
 
 ### Commit Messages
 
