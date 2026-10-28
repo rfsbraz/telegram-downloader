@@ -3,6 +3,7 @@ updates:
   # Python dependencies
   - package-ecosystem: "pip"
     directory: "/"
+    target-branch: "develop"
     schedule:
       interval: "daily"
     commit-message:
@@ -27,6 +28,7 @@ updates:
   # Docker base images
   - package-ecosystem: "docker"
     directory: "/"
+    target-branch: "develop"
     schedule:
       interval: "daily"
     commit-message:
@@ -45,6 +47,7 @@ updates:
   # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
+    target-branch: "develop"
     schedule:
       interval: "daily"
     commit-message:

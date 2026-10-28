@@ -39,11 +39,18 @@ mkdocs serve       # local preview at http://localhost:8000
 
 ## Making Changes
 
-1. Fork the repository and create a branch from `main`
+1. Fork the repository and create a branch from `develop`
 2. Make your changes
 3. Run `make test` and make sure everything passes
 4. Update documentation if your change affects user-facing behavior
-5. Open a pull request and fill in the template, including the AI use section
+5. Open a pull request into `develop` and fill in the template, including the AI use section
+
+### Branches and releases
+
+- `develop` is the default branch. Every PR goes there and is squash-merged, so the PR title becomes the commit and the changelog line.
+- release-please keeps a release PR open into `develop`. Merging it tags the release on `develop` and publishes the GitHub release.
+- The release workflow then opens `sync/develop-to-main-<tag>` into `main` and merges it with a merge commit once its checks pass. Never squash that PR.
+- `main` only ever holds released code. The push from that sync builds the Docker `latest` and version tags. `edge` follows `develop`.
 
 ### Low-effort and automated PRs
 

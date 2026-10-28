@@ -195,7 +195,7 @@ docker pull ghcr.io/rfsbraz/telegram-downloader:latest
 | Tag | Description |
 |-----|-------------|
 | `latest` | Latest stable release |
-| `edge` | Latest main branch (may be unstable) |
+| `edge` | Latest `develop` branch (may be unstable) |
 | `v1.2.3` | Specific version |
 | `v1.2` | Latest patch for minor version |
 | `v1` | Latest minor for major version |

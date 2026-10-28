@@ -5,10 +5,10 @@
 | Version | Supported |
 |---------|-----------|
 | latest release | Yes |
-| `edge` (main branch) | Best effort |
+| `edge` (`develop` branch) | Best effort |
 | older releases | No |
 
-Security fixes target the latest release and `main`. Older releases may receive patches for critical vulnerabilities on a best-effort basis.
+Security fixes land on `develop` and ship in the next release. Older releases may receive patches for critical vulnerabilities on a best-effort basis.
 
 ## Reporting a Vulnerability
 
