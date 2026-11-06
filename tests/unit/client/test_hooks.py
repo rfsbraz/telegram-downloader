@@ -18,6 +18,7 @@ import pytest
 from src.daemon.service import DaemonService
 
 from src.client.hooks import build_hook_command, run_post_download_hook
+from src.client import hooks
 
 log = logging.getLogger("test-hooks")
 
@@ -234,3 +235,25 @@ async def test_exited_hook_does_not_wait_for_descendant_output_handles(tmp_path)
                 os.kill(int(marker.read_text()), signal.SIGTERM)
             except ProcessLookupError:
                 pass
+
+
+@pytest.mark.parametrize("failing_open", [1, 2])
+async def test_unavailable_temporary_output_does_not_fail_download(tmp_path, monkeypatch, caplog, failing_open):
+    real_open = hooks.tempfile.TemporaryFile
+    opened = []
+
+    def create_output():
+        if len(opened) + 1 == failing_open:
+            raise OSError("temporary filesystem is unavailable")
+        stream = real_open()
+        opened.append(stream)
+        return stream
+
+    spawn = AsyncMock()
+    monkeypatch.setattr(hooks.tempfile, "TemporaryFile", create_output)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    with caplog.at_level(logging.WARNING, logger=log.name):
+        await run_post_download_hook("unused-command", tmp_path / "book.pdf", "src", 1, timeout=1, log=log)
+    spawn.assert_not_awaited()
+    assert all(stream.closed for stream in opened)
+    assert "could not capture output" in caplog.text

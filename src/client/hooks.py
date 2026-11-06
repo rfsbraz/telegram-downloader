@@ -17,6 +17,7 @@ import os
 import shlex
 import signal
 import tempfile
+from contextlib import ExitStack
 from pathlib import Path
 
 # Supported placeholders in the hook command template
@@ -137,7 +138,13 @@ async def run_post_download_hook(
 
     # File-backed output cannot hold process.wait() open when descendants
     # inherit stdout/stderr. Pipes would make even cancellation cleanup hang.
-    with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+    with ExitStack() as output:
+        try:
+            stdout_file = output.enter_context(tempfile.TemporaryFile())
+            stderr_file = output.enter_context(tempfile.TemporaryFile())
+        except Exception as error:
+            log.warning(f"Post-download hook could not capture output for {file_path.name}: {error}")
+            return
         try:
             process = await asyncio.create_subprocess_exec(
                 *argv,
@@ -163,9 +170,13 @@ async def run_post_download_hook(
             await _terminate_hook(process, log)
             log.warning(f"Post-download hook failed for {file_path.name}: {e}")
             return
-        stdout_file.seek(0)
-        stderr_file.seek(0)
-        stdout, stderr = stdout_file.read(), stderr_file.read()
+        try:
+            stdout_file.seek(0)
+            stderr_file.seek(0)
+            stdout, stderr = stdout_file.read(), stderr_file.read()
+        except Exception as error:
+            log.warning(f"Post-download hook could not read output for {file_path.name}: {error}")
+            return
 
     if stdout:
         log.debug(f"Hook stdout: {stdout.decode(errors='replace').strip()}")
