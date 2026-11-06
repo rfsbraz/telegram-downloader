@@ -76,7 +76,8 @@ async def run_post_download_hook(
 
     Hook failures (bad command, non-zero exit, timeout) are logged but
     never raised: the file was already saved successfully, so the
-    download must not be marked as failed because of the hook.
+    download must not be marked as failed because of the hook. Cancellation
+    from the enclosing daemon check is propagated after the child is reaped.
 
     Args:
         template: Command template with placeholders
@@ -111,9 +112,17 @@ async def run_post_download_hook(
         stdout, stderr = await asyncio.wait_for(
             process.communicate(), timeout=timeout
         )
-    except asyncio.TimeoutError:
-        process.kill()
-        await process.wait()
+    except (asyncio.TimeoutError, asyncio.CancelledError) as error:
+        # The daemon's deadline can cancel this task before the hook's own
+        # timeout. Stop and drain the child before allowing the next check.
+        if process.returncode is None:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass  # The child exited between the check and kill.
+        await process.communicate()
+        if isinstance(error, asyncio.CancelledError):
+            raise
         log.warning(
             f"Post-download hook timed out after {timeout}s for {file_path.name}"
         )

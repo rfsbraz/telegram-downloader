@@ -4,9 +4,13 @@ Unit tests for post-download hooks (issue #35).
 Covers placeholder substitution, injection safety, execution,
 timeout handling, and the never-fail contract.
 """
+import asyncio
 import logging
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock
+
+from src.daemon.service import DaemonService
 
 from src.client.hooks import build_hook_command, run_post_download_hook
 
@@ -107,3 +111,35 @@ class TestRunPostDownloadHook:
         await run_post_download_hook(
             'echo "{file}', tmp_path / "book.pdf", "src", 1, timeout=30, log=log
         )
+
+
+async def test_enclosing_check_timeout_kills_and_reaps_hook(tmp_path, monkeypatch):
+    started = asyncio.Event()
+    processes = []
+    real_create = asyncio.create_subprocess_exec
+
+    async def capture_process(*args, **kwargs):
+        process = await real_create(*args, **kwargs)
+        processes.append(process)
+        started.set()
+        return process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", capture_process)
+    template = f'"{Path(sys.executable).as_posix()}" -c "import time; time.sleep(60)"'
+    hook = asyncio.create_task(run_post_download_hook(
+        template, tmp_path / "book.pdf", "src", 1, timeout=30, log=log
+    ))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=10)
+        service = DaemonService(lambda: hook, 300, tmp_path / "health.txt", check_timeout=0.01)
+        await asyncio.wait_for(service.run_check(), timeout=10)
+        assert hook.cancelled()
+        assert processes[0].returncode is not None
+        assert service.health.health_file.read_text().splitlines()[0] == "error"
+        service.check_function = AsyncMock()
+        await service.run_check()
+        assert service.health.health_file.read_text().splitlines()[0] == "healthy"
+    finally:
+        if not hook.done():
+            hook.cancel()
+            await asyncio.gather(hook, return_exceptions=True)
