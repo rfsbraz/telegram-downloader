@@ -13,7 +13,10 @@ shell is involved (subprocess exec, shell=False).
 import asyncio
 import re
 import logging
+import os
 import shlex
+import signal
+import tempfile
 from pathlib import Path
 
 # Supported placeholders in the hook command template
@@ -23,6 +26,40 @@ PLACEHOLDERS = ("file", "dir", "filename", "extension", "source", "size")
 _PLACEHOLDER_RE = re.compile(
     r"\{(" + "|".join(PLACEHOLDERS) + r")\}"
 )
+
+HOOK_CLEANUP_TIMEOUT = 5
+
+
+async def _terminate_hook(process, log):
+    """Terminate the isolated hook tree without waiting forever on cleanup."""
+    try:
+        if os.name == "posix":
+            # The group remains addressable even when its leader exited while
+            # a descendant retained the output handles.
+            os.killpg(process.pid, signal.SIGKILL)
+        elif process.returncode is None:
+            killer = await asyncio.create_subprocess_exec(
+                "taskkill", "/PID", str(process.pid), "/T", "/F",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            try:
+                await asyncio.wait_for(killer.wait(), HOOK_CLEANUP_TIMEOUT)
+            except asyncio.TimeoutError:
+                killer.kill()
+    except ProcessLookupError:
+        pass
+    except (OSError, asyncio.TimeoutError) as error:
+        log.warning(f"Could not terminate hook process tree: {error}")
+    if process.returncode is None:
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+    try:
+        await asyncio.wait_for(process.wait(), HOOK_CLEANUP_TIMEOUT)
+    except asyncio.TimeoutError:
+        log.warning("Hook process cleanup exceeded its deadline")
 
 
 def build_hook_command(
@@ -98,38 +135,37 @@ async def run_post_download_hook(
 
     log.debug(f"Running post-download hook for {file_path.name}: {argv}")
 
-    try:
-        process = await asyncio.create_subprocess_exec(
-            *argv,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except Exception as e:
-        log.warning(f"Post-download hook failed to start for {file_path.name}: {e}")
-        return
+    # File-backed output cannot hold process.wait() open when descendants
+    # inherit stdout/stderr. Pipes would make even cancellation cleanup hang.
+    with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *argv,
+                stdout=stdout_file,
+                stderr=stderr_file,
+                start_new_session=os.name == "posix",
+            )
+        except Exception as e:
+            log.warning(f"Post-download hook failed to start for {file_path.name}: {e}")
+            return
 
-    try:
-        stdout, stderr = await asyncio.wait_for(
-            process.communicate(), timeout=timeout
-        )
-    except (asyncio.TimeoutError, asyncio.CancelledError) as error:
-        # The daemon's deadline can cancel this task before the hook's own
-        # timeout. Stop and drain the child before allowing the next check.
-        if process.returncode is None:
-            try:
-                process.kill()
-            except ProcessLookupError:
-                pass  # The child exited between the check and kill.
-        await process.communicate()
-        if isinstance(error, asyncio.CancelledError):
-            raise
-        log.warning(
-            f"Post-download hook timed out after {timeout}s for {file_path.name}"
-        )
-        return
-    except Exception as e:
-        log.warning(f"Post-download hook failed for {file_path.name}: {e}")
-        return
+        try:
+            await asyncio.wait_for(process.wait(), timeout=timeout)
+        except (asyncio.TimeoutError, asyncio.CancelledError) as error:
+            await _terminate_hook(process, log)
+            if isinstance(error, asyncio.CancelledError):
+                raise
+            log.warning(
+                f"Post-download hook timed out after {timeout}s for {file_path.name}"
+            )
+            return
+        except Exception as e:
+            await _terminate_hook(process, log)
+            log.warning(f"Post-download hook failed for {file_path.name}: {e}")
+            return
+        stdout_file.seek(0)
+        stderr_file.seek(0)
+        stdout, stderr = stdout_file.read(), stderr_file.read()
 
     if stdout:
         log.debug(f"Hook stdout: {stdout.decode(errors='replace').strip()}")
