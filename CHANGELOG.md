@@ -5,6 +5,13 @@
 
 * add missing dependency ([4542021](https://github.com/rfsbraz/telegram-downloader/commit/454202198134f12a4e8561bde262b69cad10035b))
 
+## [1.5.1](https://github.com/rfsbraz/telegram-downloader/compare/v1.5.0...v1.5.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* **health:** detect stalled checks independently of heartbeats ([#112](https://github.com/rfsbraz/telegram-downloader/issues/112)) ([14f2dd9](https://github.com/rfsbraz/telegram-downloader/commit/14f2dd907661b082c77eda1f7deb077faa8bebc2))
+
 ## [1.5.0](https://github.com/rfsbraz/telegram-downloader/compare/v1.4.2...v1.5.0) (2026-10-20)
 
 
