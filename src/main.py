@@ -693,6 +693,7 @@ async def main():
                 service = DaemonService(
                     check_function=check_wrapper,
                     check_interval=cfg.daemon.check_interval,
+                    check_timeout=cfg.daemon.check_timeout,
                     health_file=Path(cfg.daemon.health_file),
                     notification_manager=notification_manager,
                     active_hours=cfg.schedule_active_hours

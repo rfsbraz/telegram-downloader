@@ -19,6 +19,7 @@ class DaemonConfig(BaseModel):
     """Daemon mode configuration for continuous operation."""
     enabled: bool = Field(default=False)
     check_interval: int = Field(default=300, ge=60, le=86400)
+    check_timeout: Optional[int] = Field(default=None, ge=1)
     health_file: Path = Field(default=Path("/app/health_status.txt"))
     log_level: Optional[str] = None
 

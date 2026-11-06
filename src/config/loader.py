@@ -101,6 +101,7 @@ FLAT_FIELDS = {
 NESTED_MAPPINGS = {
     "daemon_enabled": ("daemon", "enabled"),
     "daemon_check_interval": ("daemon", "check_interval"),
+    "daemon_check_timeout": ("daemon", "check_timeout"),
     "daemon_health_file": ("daemon", "health_file"),
     "daemon_log_level": ("daemon", "log_level"),
     "notifications_enabled": ("notifications", "enabled"),
