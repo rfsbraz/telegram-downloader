@@ -121,10 +121,18 @@ These are standard Docker environment variables, not prefixed with `TDL_`.
 
 Controls continuous background operation.
 
+Every check has a deadline. With the default 300-second interval, a check times out after 600 seconds, marks health as an error and retries at the next interval. Set `daemon.check_timeout` in YAML or `TDL_DAEMON_CHECK_TIMEOUT` to override that deadline. There is no unlimited default.
+
+The health file keeps its existing first three lines (status, UTC timestamp, optional reason). A fourth line adds versioned JSON with `updated_at`, `started_at`, `last_success`, `last_progress` and `max_check_age`. The heartbeat refreshes only liveness, not successful-check progress. Docker rejects stale liveness after 600 seconds (overridable with `TDL_DAEMON_HEALTH_MAX_AGE`), and rejects stalled check progress after the check interval plus the check timeout plus one 60-second heartbeat interval. This second deadline also detects a check that ignores cancellation while the event loop is still alive.
+
+Skipping a check outside configured active hours advances `last_progress` but preserves `last_success`, so an intentional overnight idle period stays healthy without pretending a download check succeeded. Legacy two-line and three-line health files remain readable using their existing timestamp freshness check.
+
+
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `TDL_DAEMON_ENABLED` | boolean | `false` | Enable daemon mode |
 | `TDL_DAEMON_CHECK_INTERVAL` | integer | `300` | Seconds between checks (60-86400) |
+| `TDL_DAEMON_CHECK_TIMEOUT` | integer | twice the check interval | Maximum seconds for one check, including downloads. Must be positive. Increase for large files or slow connections. |
 | `TDL_DAEMON_HEALTH_FILE` | path | `/app/health_status.txt` | Health check file path |
 | `TDL_DAEMON_LOG_LEVEL` | string | unset | Log level: DEBUG, INFO, WARNING, ERROR or CRITICAL, any case. Any other value stops startup with a config error. When unset, `TDL_VERBOSITY` decides (INFO by default) |
 

@@ -2,6 +2,7 @@
 import asyncio
 import signal
 import logging
+import math
 import time
 from datetime import datetime, timedelta
 from typing import Callable, Awaitable, Optional
@@ -48,7 +49,7 @@ class DaemonService:
         check_function: Callable[[], Awaitable[None]],
         check_interval: int,
         health_file: Path,
-        check_timeout: Optional[int] = None,
+        check_timeout: Optional[float] = None,
         notification_manager: Optional[NotificationManager] = None,
         active_hours: str = ""
     ):
@@ -59,19 +60,26 @@ class DaemonService:
             check_function: Async function to call periodically
             check_interval: Seconds between checks
             health_file: Path to health status file
-            check_timeout: Optional timeout for check execution (None = no timeout)
+            check_timeout: Check deadline in seconds (None = twice check_interval)
             notification_manager: Optional notification manager for sending alerts
             active_hours: Optional schedule windows ("02:00-08:00,22:00-23:59");
                 checks outside these windows are skipped. Empty = no restriction.
         """
         self.check_function = check_function
         self.check_interval = check_interval
-        self.check_timeout = check_timeout
+        if check_interval <= 0 or (
+            check_timeout is not None and (not math.isfinite(check_timeout) or check_timeout <= 0)
+        ):
+            raise ValueError("check_interval and check_timeout must be positive")
+        self.check_timeout = check_timeout if check_timeout is not None else 2 * check_interval
         self.notification_manager = notification_manager
         self.active_hours = active_hours
         self.active_windows = parse_active_hours(active_hours) if active_hours else []
         self.shutdown_event = asyncio.Event()
-        self.health = HealthMonitor(health_file)
+        self.health = HealthMonitor(
+            health_file,
+            max_check_age=check_interval + self.check_timeout + self.HEARTBEAT_INTERVAL,
+        )
         self.log = logging.getLogger("daemon")
         self.iteration = 0
         self._heartbeat_task: Optional[asyncio.Task] = None
@@ -154,7 +162,7 @@ class DaemonService:
             self.log.info(
                 f"Outside active hours ({self.active_hours}), skipping check"
             )
-            self.health.update_status("healthy")
+            self.health.update_status("healthy", successful_check=False)
             return
 
         self.iteration += 1
@@ -162,14 +170,10 @@ class DaemonService:
 
         start_time = time.time()
         try:
-            # Run check with optional timeout
-            if self.check_timeout:
-                result = await asyncio.wait_for(
-                    self.check_function(),
-                    timeout=self.check_timeout
-                )
-            else:
-                result = await self.check_function()
+            # Bound every check, including the first iteration.
+            result = await asyncio.wait_for(
+                self.check_function(), timeout=self.check_timeout
+            )
 
             # Check successful
             duration = time.time() - start_time
@@ -197,7 +201,7 @@ class DaemonService:
                 f"Check iteration {self.iteration} timed out after {self.check_timeout}s. "
                 "Will retry at next scheduled check."
             )
-            self.health.update_status("error")
+            self.health.update_status("error", reason=f"Check timed out after {self.check_timeout}s")
 
             # Send timeout error notification (critical - bypass throttling)
             if self.notification_manager:

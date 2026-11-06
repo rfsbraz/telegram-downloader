@@ -33,6 +33,7 @@ def make_config(tmp_path, daemon_enabled):
     cfg.daemon.log_level = None
     cfg.daemon.enabled = daemon_enabled
     cfg.daemon.check_interval = 300
+    cfg.daemon.check_timeout = None
     cfg.daemon.health_file = tmp_path / "health_status.txt"
     cfg.session_dir = tmp_path
     cfg.track_downloads = False
