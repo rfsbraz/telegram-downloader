@@ -238,7 +238,7 @@ MIT - see [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 
-- [Pyrogram](https://docs.pyrogram.org/) - Telegram MTProto API framework
+- [Kurigram](https://docs.kurigram.icu/) - Telegram MTProto API framework, a maintained fork of [Pyrogram](https://docs.pyrogram.org/)
 - [Pydantic](https://docs.pydantic.dev/) - Data validation
 - [docker/metadata-action](https://github.com/docker/metadata-action) - Docker tagging
 
