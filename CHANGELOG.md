@@ -5,6 +5,19 @@
 
 * add missing dependency ([4542021](https://github.com/rfsbraz/telegram-downloader/commit/454202198134f12a4e8561bde262b69cad10035b))
 
+## [1.6.0](https://github.com/rfsbraz/telegram-downloader/compare/v1.5.0...v1.6.0) (2026-11-09)
+
+
+### Features
+
+* **downloader:** keep a free space reserve and defer downloads when the disk is full ([#115](https://github.com/rfsbraz/telegram-downloader/issues/115)) ([29adcb3](https://github.com/rfsbraz/telegram-downloader/commit/29adcb350226883282d3e69aa7d160c7ba2f3a03))
+
+
+### Bug Fixes
+
+* **deps:** move from unmaintained Pyrogram to the kurigram fork ([#116](https://github.com/rfsbraz/telegram-downloader/issues/116)) ([b73d6f8](https://github.com/rfsbraz/telegram-downloader/commit/b73d6f8d9e46ca9768a1759dd1e55b305deb8f45))
+* **health:** detect stalled checks independently of heartbeats ([#112](https://github.com/rfsbraz/telegram-downloader/issues/112)) ([14f2dd9](https://github.com/rfsbraz/telegram-downloader/commit/14f2dd907661b082c77eda1f7deb077faa8bebc2))
+
 ## [1.5.0](https://github.com/rfsbraz/telegram-downloader/compare/v1.4.2...v1.5.0) (2026-10-20)
 
 
