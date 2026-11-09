@@ -9,6 +9,7 @@ Implements robust download functionality with:
 """
 
 import asyncio
+import errno
 import os
 import logging
 import time
@@ -22,7 +23,12 @@ from pyrogram.errors import FloodWait, FileReferenceExpired
 
 from src.config.schema import Config
 from src.organization.deduplicator import is_duplicate, resolve_conflict
+from src.client import diskspace
 from src.client.ratelimit import RateLimiter
+
+class DiskFullError(OSError):
+    """The download volume ran out of space. Retrying cannot help (issue #61)."""
+
 
 # Extra seconds added to every FloodWait before retrying
 FLOOD_WAIT_MARGIN = 5
@@ -131,7 +137,12 @@ async def download_media_with_retry(
         ...     print("Download failed after all retries")
     """
     # Create parent directories if needed
-    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        if e.errno == errno.ENOSPC:
+            raise DiskFullError(errno.ENOSPC, f"No space left for {dest_path.name}") from e
+        raise
 
     # Use temporary .partial file during download. The message ID makes the
     # temp name unique so concurrent downloads of same-named files never
@@ -198,6 +209,16 @@ async def download_media_with_retry(
                 )
                 # The cooldown wait at the top of the loop does the sleeping
                 continue
+
+            # The client can log ENOSPC instead of raising it and leave an empty
+            # or missing file. If the rest of the file no longer fits, the disk
+            # is the cause: stop retrying so the caller keeps it pending.
+            if (not dest_temp.exists() or dest_temp.stat().st_size == 0) and (
+                diskspace.free_bytes(dest_path.parent) < max(expected_size or 0, 1)
+            ):
+                if dest_temp.exists():
+                    dest_temp.unlink()
+                raise DiskFullError(errno.ENOSPC, f"No space left for {dest_path.name}")
 
             # Validate file is non-empty (pyrogram may silently produce 0-byte
             # files when it handles FileReferenceExpired/FloodWait internally)
@@ -344,6 +365,11 @@ async def download_media_with_retry(
                 return False
 
         except Exception as e:
+            if isinstance(e, OSError) and e.errno == errno.ENOSPC:
+                # Disk full: every retry would fail the same way
+                if dest_temp.exists():
+                    dest_temp.unlink()
+                raise DiskFullError(errno.ENOSPC, f"No space left for {dest_path.name}") from e
             # Transient errors: network issues, timeouts, etc.
             if attempt < config.max_retries:
                 # Calculate exponential backoff: 2^(attempt-1) * base_delay, capped at max_delay

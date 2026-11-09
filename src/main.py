@@ -13,6 +13,7 @@ foundation architecture.
 """
 
 import asyncio
+import errno
 import logging
 import signal
 import sys
@@ -31,12 +32,14 @@ from src.config.source_parser import parse_sources, validate_source_access
 from src.organization import build_destination_path, is_duplicate, resolve_conflict
 from src.sources.base import BaseSource
 from src.state import CursorStore, DownloadHistory, PendingDownloads
-from src.client import create_client, download_media_with_retry
+from src.client import create_client, diskspace, download_media_with_retry
+from src.client.downloader import DiskFullError
 from src.client.hooks import run_post_download_hook
 from src.client.ratelimit import RateLimiter, parse_rate
 from src.notifications import NotificationManager, DiscordNotifier, GenericWebhook
 from src.client.errors import AUTH_ERRORS
 from src.daemon.health import HealthMonitor
+from src.daemon.service import notify_low_disk_space
 
 
 def setup_logging(log_file: str, verbosity: str) -> logging.Logger:
@@ -111,7 +114,7 @@ async def download_batch(
     source_config: SourceConfig,
     history: "DownloadHistory | None" = None,
     limiter: "RateLimiter | None" = None,
-) -> tuple[int, set[int]]:
+) -> tuple[dict, set[int], set[int]]:
     """Download a batch of messages concurrently with semaphore limit.
 
     Args:
@@ -129,20 +132,34 @@ async def download_batch(
         limiter: Optional shared RateLimiter capping aggregate download speed
 
     Returns:
-        Tuple of (stats, failed_message_ids).
+        Tuple of (stats, failed_message_ids, deferred_message_ids).
         stats is a counter dict: downloaded, skipped_duplicate, skipped_tracked,
-        skipped_error, bytes_downloaded.
+        skipped_error, deferred_low_space, bytes_downloaded.
         Failed IDs are messages where download_media_with_retry returned False.
         Skips (history hit, duplicate, path error) are NOT failures.
+        Deferred IDs did not fit in the free space minus min_free_space
+        (issue #61): they stay pending, do not use an attempt and do not move
+        the cursor.
     """
     stats = {
         "downloaded": 0,
         "skipped_duplicate": 0,
         "skipped_tracked": 0,
         "skipped_error": 0,
+        "deferred_low_space": 0,
         "bytes_downloaded": 0,
     }
     failed_ids: set[int] = set()
+    deferred_ids: set[int] = set()
+    reserve = diskspace.reserve_bytes(config)
+    # Bytes still to be written by downloads already started in this batch, so concurrent
+    # downloads can't all pass the check against the same free space.
+    in_flight = {"bytes": 0}
+
+    def defer(msg_id: int, reason: str) -> None:
+        log.error(reason)
+        stats["deferred_low_space"] += 1
+        deferred_ids.add(msg_id)
 
     async def download_one(msg: Message) -> None:
         """Download single message with semaphore."""
@@ -177,6 +194,12 @@ async def download_batch(
                     source_config,
                     config.flat_structure,
                 )
+            except OSError as e:
+                if e.errno != errno.ENOSPC:
+                    raise
+                # No room even for the folder (bytes or inodes): keep it pending
+                defer(msg.id, f"Disk full creating the folder for {fname}. Kept pending.")
+                return
             except ValueError as e:
                 log.error(f"Path validation failed for {fname}: {e}")
                 cursor_store.set(cursor_key, msg.id)
@@ -201,20 +224,41 @@ async def download_batch(
                     stats["skipped_error"] += 1
                     return
 
+            # Disk space guard (issue #61): keep it pending for the next run
+            if reserve:
+                free = diskspace.free_bytes(download_dir) - in_flight["bytes"]
+                if free < (media_size or 0) + reserve:
+                    defer(
+                        msg.id,
+                        f"Not enough free space for {dest.name}: needs "
+                        f"{format_bytes(media_size or 0)} plus the "
+                        f"{format_bytes(reserve)} reserve, "
+                        f"{format_bytes(free)} free. Kept pending.",
+                    )
+                    return
+
             # Download with retry logic
             log.info(
                 f"Downloading: {dest.relative_to(download_dir)} "
                 f"(msg {msg.id}, size={getattr(media, 'file_size', 0)} bytes)"
             )
-            success = await download_media_with_retry(
-                client,
-                msg,
-                dest,
-                config,
-                log,
-                expected_size=media_size,
-                limiter=limiter,
-            )
+            # No await between the check above and this line, so the claim is atomic
+            in_flight["bytes"] += media_size or 0
+            try:
+                success = await download_media_with_retry(
+                    client,
+                    msg,
+                    dest,
+                    config,
+                    log,
+                    expected_size=media_size,
+                    limiter=limiter,
+                )
+            except DiskFullError as e:
+                defer(msg.id, f"Disk full while downloading {dest.name}: {e}. Kept pending.")
+                return
+            finally:
+                in_flight["bytes"] -= media_size or 0
 
             if success:
                 stats["downloaded"] += 1
@@ -245,7 +289,7 @@ async def download_batch(
         for msg in messages:
             tg.create_task(download_one(msg))
 
-    return stats, failed_ids
+    return stats, failed_ids, deferred_ids
 
 
 async def startup_validation(cfg, log, client):
@@ -351,10 +395,28 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
         "skipped_duplicate": 0,
         "skipped_tracked": 0,
         "skipped_error": 0,
+        "deferred_low_space": 0,
         "bytes_downloaded": 0,
     }
     total_failed = 0
     sources_failed = 0
+
+    # Disk space guard (issue #61): one loud error instead of failing file by file
+    reserve = diskspace.reserve_bytes(cfg)
+    if reserve:
+        free = diskspace.free_bytes(Path(cfg.download_dir))
+        if free < reserve:
+            log.error(
+                f"Free space on {cfg.download_dir} ({format_bytes(free)}) is below the "
+                f"reserve of {format_bytes(reserve)} (TDL_MIN_FREE_SPACE). Skipping this "
+                f"check; pending downloads resume once space is freed."
+            )
+            return {
+                "sources_checked": 0,
+                "low_disk_space": True,
+                "free_space": format_bytes(free),
+                "duration": f"{time.monotonic() - run_started:.1f}s",
+            }
 
     # Create global concurrency control
     semaphore = asyncio.Semaphore(cfg.max_concurrent_downloads)
@@ -439,14 +501,15 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
                     f"total pending={pending.count(cursor_key)})"
                 )
 
-                batch_stats, failed_ids = await download_batch(
+                batch_stats, failed_ids, deferred_ids = await download_batch(
                     candidates, semaphore, client, Path(cfg.download_dir),
                     state_store, cursor_key, cfg, log, source, source_config, history,
                     limiter,
                 )
 
-                # Remove from pending: orphaned + processed (everything except failures)
-                remove_ids = orphaned_ids | (candidate_ids - failed_ids)
+                # Remove from pending: orphaned + processed (everything except
+                # failures and downloads deferred for disk space)
+                remove_ids = orphaned_ids | (candidate_ids - failed_ids - deferred_ids)
                 pending.remove_batch(cursor_key, list(remove_ids))
                 total_downloaded += batch_stats["downloaded"]
                 total_failed += len(failed_ids)
@@ -470,6 +533,8 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
                         f"{cfg.max_download_attempts} attempts)"
                     )
 
+                if deferred_ids:
+                    break  # Out of disk space: the rest waits for the next run
                 if max_downloads:
                     break  # Capped mode: one batch only
 
@@ -519,6 +584,8 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
     log.info(f"Files downloaded:   {totals['downloaded']}")
     log.info(f"Files skipped:      {skipped_total}{breakdown}")
     log.info(f"Files failed:       {total_failed}")
+    if totals["deferred_low_space"]:
+        log.info(f"Files deferred:     {totals['deferred_low_space']} (low disk space)")
     log.info(f"Bytes downloaded:   {format_bytes(totals['bytes_downloaded'])}")
     log.info(f"Duration:           {duration:.1f}s")
     log.info("=" * 49)
@@ -537,6 +604,8 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
         "files_downloaded": totals["downloaded"],
         "files_skipped": skipped_total,
         "files_failed": total_failed,
+        "files_deferred_low_space": totals["deferred_low_space"],
+        "low_disk_space": totals["deferred_low_space"] > 0,
         "bytes_downloaded": format_bytes(totals["bytes_downloaded"]),
         "duration": f"{duration:.1f}s",
     }
@@ -703,7 +772,9 @@ async def main():
                 await service.run()
             else:
                 log.info("Running in single-shot mode")
-                await run_check(cfg, log, state_store, client, sources_with_filters, history, pending, limiter)
+                summary = await run_check(cfg, log, state_store, client, sources_with_filters, history, pending, limiter)
+                if notification_manager:
+                    await notify_low_disk_space(notification_manager, summary)
     except AUTH_ERRORS as e:
         await handle_auth_failure(cfg, log, notification_manager, e)
         if not cfg.daemon.enabled:

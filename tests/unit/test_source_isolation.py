@@ -45,6 +45,7 @@ def make_args(sources):
     cfg = MagicMock()
     cfg.max_concurrent_downloads = 1
     cfg.max_downloads_per_run = 0
+    cfg.min_free_space = ""  # disk guard off: these tests are about sources
     state_store = MagicMock()
     state_store.get.return_value = 0
     pending = MagicMock()
