@@ -23,3 +23,11 @@ def reserve_bytes(cfg) -> int:
 def is_off(value: str) -> bool:
     """True for an empty value or a plain 0, the documented off switch (parse_size needs a unit)."""
     return value.strip() in ("", "0")
+
+
+def written_bytes(path: Path) -> int:
+    """Size of a partial download so far, 0 when it doesn't exist (yet or after a retry)."""
+    try:
+        return path.stat().st_size
+    except FileNotFoundError:
+        return 0
