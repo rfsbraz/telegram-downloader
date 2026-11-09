@@ -36,8 +36,8 @@ def test_the_client_library_is_kurigram():
         metadata.version("pyrogram")
 
 
-async def test_a_pyrogram_session_file_opens_with_the_same_login(old_session_dir):
-    config = Config(api_id=12345, api_hash="abc123def456789012345678901234ab", session_dir=old_session_dir)
+async def test_a_pyrogram_session_file_opens_with_the_same_login(old_session_dir, minimal_config_dict):
+    config = Config(**minimal_config_dict, session_dir=old_session_dir)
     client = create_client(config)
     assert Path(client.storage.database) == old_session_dir / f"{SESSION_NAME}.session"
 
@@ -56,8 +56,8 @@ async def test_a_pyrogram_session_file_opens_with_the_same_login(old_session_dir
         await client.storage.close()
 
 
-async def test_the_session_file_is_migrated_in_place(old_session_dir):
-    config = Config(api_id=12345, api_hash="abc123def456789012345678901234ab", session_dir=old_session_dir)
+async def test_the_session_file_is_migrated_in_place(old_session_dir, minimal_config_dict):
+    config = Config(**minimal_config_dict, session_dir=old_session_dir)
     client = create_client(config)
     await client.storage.open()
     await client.storage.close()
