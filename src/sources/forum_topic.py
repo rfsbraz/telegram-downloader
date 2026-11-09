@@ -137,52 +137,34 @@ class ForumTopicSource(BaseSource):
         Yields:
             Message objects with potential media attachments from this topic
         """
-        offset_id = 0
-        batch_size = 200
+        # One iterator over the whole history. Kurigram ignores offset_id, so
+        # paginating by it would repeat the newest batch forever.
+        async for m in self.client.get_chat_history(self.chat_id):
+            # Check if message belongs to this topic
+            # Forum messages have reply_to_top_message_id or reply_to_message_id
+            # pointing to the topic root
+            topic_match = False
+            if hasattr(m, 'reply_to_top_message_id') and m.reply_to_top_message_id == self.topic_id:
+                topic_match = True
+            elif hasattr(m, 'reply_to_message_id') and m.reply_to_message_id == self.topic_id:
+                topic_match = True
+            elif m.id == self.topic_id:
+                # The topic root message itself
+                topic_match = True
 
-        while True:
-            buf = []
-            async for m in self.client.get_chat_history(
-                self.chat_id,
-                offset_id=offset_id,
-                limit=batch_size
+            if not topic_match:
+                continue
+
+            # Yield messages with media attachments
+            if (
+                m.document or
+                m.audio or
+                m.video or
+                m.animation or
+                m.voice or
+                m.video_note
             ):
-                buf.append(m)
-
-            if not buf:
-                break
-
-            for m in buf:
-                offset_id = m.id
-
-                # Check if message belongs to this topic
-                # Forum messages have reply_to_top_message_id or reply_to_message_id
-                # pointing to the topic root
-                topic_match = False
-                if hasattr(m, 'reply_to_top_message_id') and m.reply_to_top_message_id == self.topic_id:
-                    topic_match = True
-                elif hasattr(m, 'reply_to_message_id') and m.reply_to_message_id == self.topic_id:
-                    topic_match = True
-                elif m.id == self.topic_id:
-                    # The topic root message itself
-                    topic_match = True
-
-                if not topic_match:
-                    continue
-
-                # Yield messages with media attachments
-                if (
-                    m.document or
-                    m.audio or
-                    m.video or
-                    m.animation or
-                    m.voice or
-                    m.video_note
-                ):
-                    yield m
-
-            if len(buf) < batch_size:
-                break
+                yield m
 
     def get_cursor_key(self) -> str:
         """
