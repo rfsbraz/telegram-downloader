@@ -72,8 +72,9 @@ async def create_source(
             # Public or private channel
             return ChannelSource(client, resolved_id)
 
-        case ChatType.SUPERGROUP:
-            # Supergroup - could be forum or regular
+        case ChatType.SUPERGROUP | ChatType.FORUM:
+            # Supergroup - could be forum or regular. Kurigram reports a forum-enabled
+            # supergroup as FORUM, Pyrogram reported it as SUPERGROUP (#58).
             if topic_id is not None:
                 # Forum topic in supergroup
                 return ForumTopicSource(client, resolved_id, topic_id)
@@ -93,5 +94,5 @@ async def create_source(
             # Unsupported chat type
             raise ValueError(
                 f"Unsupported chat type: {chat.type}. "
-                f"Expected CHANNEL, SUPERGROUP, GROUP, PRIVATE, or BOT."
+                f"Expected CHANNEL, SUPERGROUP, FORUM, GROUP, PRIVATE, or BOT."
             )

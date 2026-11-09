@@ -125,6 +125,13 @@ Solutions for common errors and issues.
 
     After that upgrade, an older release can no longer read the file. If you might roll back, copy the `sessions` directory before you upgrade, and restore that copy if you go back.
 
+    The Docker image needs nothing else. If you run from your own Python environment, remove Pyrogram before you install the new requirements, because both packages install the `pyrogram` module:
+
+    ```bash
+    pip uninstall -y pyrogram
+    pip install -r requirements.txt
+    ```
+
 ## Docker Issues
 
 ### Container Won't Start
