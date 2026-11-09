@@ -239,7 +239,7 @@ MIT License - see LICENSE file for details.
 
 Built with:
 
-- [Pyrogram](https://docs.pyrogram.org/) - Telegram MTProto API framework
+- [Kurigram](https://docs.kurigram.icu/) - Telegram MTProto API framework, a maintained fork of [Pyrogram](https://docs.pyrogram.org/)
 - [Pydantic](https://docs.pydantic.dev/) - Data validation
 - [PyYAML](https://pyyaml.org/) - Configuration parsing
 

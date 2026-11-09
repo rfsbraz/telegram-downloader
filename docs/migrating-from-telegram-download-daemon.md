@@ -72,7 +72,7 @@ The example leaves out `read_only: true` because we have not tested the image wi
 3. Log in once: `docker compose run --rm telegram-downloader`, then enter the code Telegram sends you.
 4. Start it: `docker compose up -d`.
 
-You have to log in again. The daemon keeps a Telethon session; Telegram Downloader uses Pyrogram and its own session file, so the old session is not reused.
+You have to log in again. The daemon keeps a Telethon session; Telegram Downloader uses Kurigram (a maintained Pyrogram fork) and its own session file, so the old session is not reused.
 
 ## What is different
 

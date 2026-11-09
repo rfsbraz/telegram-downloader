@@ -1,0 +1,43 @@
+-- A session file as Pyrogram 2.0.106 writes it (schema version 3), dumped with sqlite3 iterdump.
+-- Made with pyrogram.storage.FileStorage from synthetic values only: auth key bytes 0x00 to 0xFF,
+-- api_id 12345, user 123456789 and one made-up channel peer, dates pinned to 1700000000.
+-- It is not a real Telegram session. See tests/unit/client/test_session_compat.py (#58).
+BEGIN TRANSACTION;
+CREATE TABLE peers
+(
+    id             INTEGER PRIMARY KEY,
+    access_hash    INTEGER,
+    type           INTEGER NOT NULL,
+    username       TEXT,
+    phone_number   TEXT,
+    last_update_on INTEGER NOT NULL DEFAULT (CAST(STRFTIME('%s', 'now') AS INTEGER))
+);
+INSERT INTO "peers" VALUES(-1001234567890,987654321,'channel','example_channel',NULL,1700000000);
+CREATE TABLE sessions
+(
+    dc_id     INTEGER PRIMARY KEY,
+    api_id    INTEGER,
+    test_mode INTEGER,
+    auth_key  BLOB,
+    date      INTEGER NOT NULL,
+    user_id   INTEGER,
+    is_bot    INTEGER
+);
+INSERT INTO "sessions" VALUES(2,12345,0,X'000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F202122232425262728292A2B2C2D2E2F303132333435363738393A3B3C3D3E3F404142434445464748494A4B4C4D4E4F505152535455565758595A5B5C5D5E5F606162636465666768696A6B6C6D6E6F707172737475767778797A7B7C7D7E7F808182838485868788898A8B8C8D8E8F909192939495969798999A9B9C9D9E9FA0A1A2A3A4A5A6A7A8A9AAABACADAEAFB0B1B2B3B4B5B6B7B8B9BABBBCBDBEBFC0C1C2C3C4C5C6C7C8C9CACBCCCDCECFD0D1D2D3D4D5D6D7D8D9DADBDCDDDEDFE0E1E2E3E4E5E6E7E8E9EAEBECEDEEEFF0F1F2F3F4F5F6F7F8F9FAFBFCFDFEFF',1700000000,123456789,0);
+CREATE TABLE version
+(
+    number INTEGER PRIMARY KEY
+);
+INSERT INTO "version" VALUES(3);
+CREATE INDEX idx_peers_id ON peers (id);
+CREATE INDEX idx_peers_username ON peers (username);
+CREATE INDEX idx_peers_phone_number ON peers (phone_number);
+CREATE TRIGGER trg_peers_last_update_on
+    AFTER UPDATE
+    ON peers
+BEGIN
+    UPDATE peers
+    SET last_update_on = CAST(STRFTIME('%s', 'now') AS INTEGER)
+    WHERE id = NEW.id;
+END;
+COMMIT;
