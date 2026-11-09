@@ -16,6 +16,27 @@ from src.notifications.manager import NotificationManager
 logger = logging.getLogger(__name__)
 
 
+
+async def notify_low_disk_space(notification_manager, summary) -> None:
+    """Critical notification when a check ran short of disk space (issue #61)."""
+    if not isinstance(summary, dict) or not summary.get("low_disk_space"):
+        return
+    await notification_manager.notify(
+        level="error",
+        title="Download Volume Low on Space",
+        message=(
+            "Downloads are paused until space is freed on the download volume. "
+            "Pending downloads resume on the next check."
+        ),
+        details={
+            k: summary[k]
+            for k in ("free_space", "files_deferred_low_space")
+            if k in summary
+        },
+        force=True,
+    )
+
+
 class DaemonService:
     """
     Daemon orchestration with periodic execution and graceful shutdown.
@@ -195,6 +216,7 @@ class DaemonService:
                     message=f"Iteration {self.iteration} completed successfully",
                     details=details
                 )
+                await notify_low_disk_space(self.notification_manager, result)
 
         except asyncio.TimeoutError:
             self.log.error(

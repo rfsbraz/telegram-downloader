@@ -315,6 +315,7 @@ Example:
 | `TDL_MAX_CONCURRENT_DOWNLOADS` | integer | `1` | Downloads running at the same time (1-10) |
 | `TDL_SCHEDULE_ACTIVE_HOURS` | string | unset | Only run checks inside these windows, e.g. `02:00-08:00,22:00-23:59` (local time via `TZ`) |
 | `TDL_MAX_DOWNLOAD_SPEED` | string | unset | Cap on total download speed, e.g. `500KB` or `5MB` |
+| `TDL_MIN_FREE_SPACE` | string | `1GB` | Free space to keep on the download volume, e.g. `5GB`. A file that would go below it stays pending and an error notification is sent. When the volume is already below it, the check is skipped. `0` turns the check off |
 | `TDL_POST_DOWNLOAD_HOOK` | string | unset | Command run after each successful download (see the README for placeholders) |
 | `TDL_POST_DOWNLOAD_HOOK_TIMEOUT` | integer | `300` | Seconds before the hook is stopped (1-86400) |
 | `TDL_VERBOSITY` | string | `normal` | `quiet` (WARNING), `normal` (INFO) or `verbose` (DEBUG) |

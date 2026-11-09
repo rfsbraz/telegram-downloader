@@ -80,6 +80,7 @@ FLAT_FIELDS = {
     "verbosity",
     "schedule_active_hours",
     "max_download_speed",
+    "min_free_space",
     "max_concurrent_downloads",
     "max_downloads_per_run",
     "max_retries",

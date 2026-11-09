@@ -154,6 +154,10 @@ class Config(BaseModel):
     # Empty means unlimited.
     max_download_speed: str = Field(default="")
 
+    # Disk space: keep at least this much free on the download volume ("5GB").
+    # Downloads that would go below it are deferred. Empty or "0" disables it.
+    min_free_space: str = Field(default="1GB")
+
     # Daemon mode configuration
     daemon: DaemonConfig = Field(default_factory=DaemonConfig)
 
@@ -210,6 +214,18 @@ class Config(BaseModel):
                 parse_rate(v)
             except ValueError as e:
                 raise ValueError(str(e))
+        return v
+
+    @field_validator("min_free_space")
+    @classmethod
+    def validate_min_free_space(cls, v: str) -> str:
+        """Fail fast on malformed sizes."""
+        if v:
+            from src.config.source_parser import parse_size
+            try:
+                parse_size(v)
+            except Exception as e:
+                raise ValueError(f"Invalid min_free_space '{v}': {e}")
         return v
 
     @field_validator("api_hash")

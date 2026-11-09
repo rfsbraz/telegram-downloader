@@ -9,6 +9,7 @@ Implements robust download functionality with:
 """
 
 import asyncio
+import errno
 import os
 import logging
 import time
@@ -23,6 +24,10 @@ from pyrogram.errors import FloodWait, FileReferenceExpired
 from src.config.schema import Config
 from src.organization.deduplicator import is_duplicate, resolve_conflict
 from src.client.ratelimit import RateLimiter
+
+class DiskFullError(OSError):
+    """The download volume ran out of space. Retrying cannot help (issue #61)."""
+
 
 # Extra seconds added to every FloodWait before retrying
 FLOOD_WAIT_MARGIN = 5
@@ -344,6 +349,11 @@ async def download_media_with_retry(
                 return False
 
         except Exception as e:
+            if isinstance(e, OSError) and e.errno == errno.ENOSPC:
+                # Disk full: every retry would fail the same way
+                if dest_temp.exists():
+                    dest_temp.unlink()
+                raise DiskFullError(errno.ENOSPC, f"No space left for {dest_path.name}") from e
             # Transient errors: network issues, timeouts, etc.
             if attempt < config.max_retries:
                 # Calculate exponential backoff: 2^(attempt-1) * base_delay, capped at max_delay
