@@ -311,8 +311,9 @@ class TestConcurrentDownloads:
         import asyncio
 
         set_free(monkeypatch, 4 * GB)
-        # A sparse partial file: 1.5 GB by size, nothing on disk
-        with open(tmp_path / "book.pdf.1.partial", "wb") as partial:
+        # The client streams into "<partial>.temp" until it finishes. Sparse: 1.5 GB by
+        # size, nothing on disk.
+        with open(tmp_path / "book.pdf.1.partial.temp", "wb") as partial:
             partial.truncate(GB + GB // 2)
 
         async def fake_dest(download_dir, source, fname, source_config, flat):

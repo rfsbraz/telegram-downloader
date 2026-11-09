@@ -26,8 +26,16 @@ def is_off(value: str) -> bool:
 
 
 def written_bytes(path: Path) -> int:
-    """Size of a partial download so far, 0 when it doesn't exist (yet or after a retry)."""
-    try:
-        return path.stat().st_size
-    except FileNotFoundError:
-        return 0
+    """Bytes a download has written to its partial file so far.
+
+    The client streams into "<path>.temp" and renames it to path when the transfer
+    ends, so both are counted. A missing file (not started, or removed for a retry)
+    counts as 0.
+    """
+    total = 0
+    for candidate in (path, path.with_name(path.name + ".temp")):
+        try:
+            total += candidate.stat().st_size
+        except FileNotFoundError:
+            pass
+    return total
