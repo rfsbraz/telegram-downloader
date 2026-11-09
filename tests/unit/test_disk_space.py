@@ -252,3 +252,105 @@ class TestDeferredStayPending:
         pending.increment_attempts.assert_not_called()
         assert summary["files_deferred_low_space"] == 1
         assert summary["low_disk_space"] is True
+
+    def test_zero_turns_the_check_off(self, monkeypatch):
+        # Without humanfriendly, parse_size needs a unit; "0" is the documented off switch.
+        import builtins
+
+        real_import = builtins.__import__
+
+        def no_humanfriendly(name, *args, **kwargs):
+            if name == "humanfriendly":
+                raise ImportError(name)
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", no_humanfriendly)
+        cfg = Config(api_id=1, api_hash="x", min_free_space="0")
+        assert diskspace.reserve_bytes(cfg) == 0
+
+
+class TestConcurrentDownloads:
+
+    async def test_in_flight_downloads_count_against_the_free_space(self, tmp_path, monkeypatch):
+        # 4 GB free, 1 GB reserve: two 2 GB files can't both start (Copilot on #115).
+        import asyncio
+
+        set_free(monkeypatch, 4 * GB)
+
+        async def fake_dest(download_dir, source, fname, source_config, flat):
+            return download_dir / fname
+
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow_download(*args, **kwargs):
+            started.set()
+            await release.wait()
+            return True
+
+        monkeypatch.setattr(main_module, "build_destination_path", fake_dest)
+        monkeypatch.setattr(main_module, "download_media_with_retry", AsyncMock(side_effect=slow_download))
+        a, b = make_msg(1, 2 * GB), make_msg(2, 2 * GB)
+        b.document.file_name = "other.pdf"
+        batch = asyncio.create_task(download_batch(
+            [a, b], asyncio.Semaphore(2), MagicMock(), tmp_path, MagicMock(), "key",
+            make_cfg("1GB"), logging.getLogger("t"), MagicMock(), MagicMock(),
+        ))
+        await started.wait()
+        await asyncio.sleep(0)
+        release.set()
+        stats, failed, deferred = await batch
+        assert stats["downloaded"] == 1
+        assert deferred == {2}
+
+
+class TestEnospcOutsideTheTransfer:
+
+    async def test_enospc_creating_the_destination_is_deferred(self, tmp_path, monkeypatch):
+        import asyncio
+
+        set_free(monkeypatch, 10 * GB)
+
+        async def full_dest(download_dir, source, fname, source_config, flat):
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+        monkeypatch.setattr(main_module, "build_destination_path", full_dest)
+        cursor = MagicMock()
+        stats, failed, deferred = await download_batch(
+            [make_msg()], asyncio.Semaphore(1), MagicMock(), tmp_path, cursor, "key",
+            make_cfg(), logging.getLogger("t"), MagicMock(), MagicMock(),
+        )
+        assert deferred == {7} and failed == set()
+        cursor.set.assert_not_called()
+
+    async def test_enospc_creating_the_folder_in_the_downloader_is_disk_full(self, tmp_path, monkeypatch):
+        def full_mkdir(self, *args, **kwargs):
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+        monkeypatch.setattr(Path, "mkdir", full_mkdir)
+        msg = MagicMock()
+        msg.id = 42
+        with pytest.raises(DiskFullError):
+            await download_media_with_retry(
+                AsyncMock(), msg, tmp_path / "new" / "f.pdf", make_cfg(), logging.getLogger("t")
+            )
+
+    async def test_empty_file_with_no_space_left_is_disk_full_not_a_retry(self, tmp_path, monkeypatch):
+        # The client can log ENOSPC and hand back an empty file; then the disk is the cause.
+        set_free(monkeypatch, 0)
+        client = AsyncMock()
+        calls = []
+
+        async def empty_download(msg, file_name, progress=None):
+            calls.append(file_name)
+            Path(file_name).write_bytes(b"")
+            return file_name
+
+        client.download_media.side_effect = empty_download
+        msg = MagicMock()
+        msg.id = 42
+        with pytest.raises(DiskFullError):
+            await download_media_with_retry(
+                client, msg, tmp_path / "f.pdf", make_cfg(), logging.getLogger("t"), expected_size=2 * GB
+            )
+        assert len(calls) == 1

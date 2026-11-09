@@ -13,6 +13,7 @@ foundation architecture.
 """
 
 import asyncio
+import errno
 import logging
 import signal
 import sys
@@ -151,6 +152,9 @@ async def download_batch(
     failed_ids: set[int] = set()
     deferred_ids: set[int] = set()
     reserve = diskspace.reserve_bytes(config)
+    # Bytes still to be written by downloads already started in this batch, so concurrent
+    # downloads can't all pass the check against the same free space.
+    in_flight = {"bytes": 0}
 
     def defer(msg_id: int, reason: str) -> None:
         log.error(reason)
@@ -190,6 +194,12 @@ async def download_batch(
                     source_config,
                     config.flat_structure,
                 )
+            except OSError as e:
+                if e.errno != errno.ENOSPC:
+                    raise
+                # No room even for the folder (bytes or inodes): keep it pending
+                defer(msg.id, f"Disk full creating the folder for {fname}. Kept pending.")
+                return
             except ValueError as e:
                 log.error(f"Path validation failed for {fname}: {e}")
                 cursor_store.set(cursor_key, msg.id)
@@ -216,7 +226,7 @@ async def download_batch(
 
             # Disk space guard (issue #61): keep it pending for the next run
             if reserve:
-                free = diskspace.free_bytes(download_dir)
+                free = diskspace.free_bytes(download_dir) - in_flight["bytes"]
                 if free < (media_size or 0) + reserve:
                     defer(
                         msg.id,
@@ -232,6 +242,8 @@ async def download_batch(
                 f"Downloading: {dest.relative_to(download_dir)} "
                 f"(msg {msg.id}, size={getattr(media, 'file_size', 0)} bytes)"
             )
+            # No await between the check above and this line, so the claim is atomic
+            in_flight["bytes"] += media_size or 0
             try:
                 success = await download_media_with_retry(
                     client,
@@ -245,6 +257,8 @@ async def download_batch(
             except DiskFullError as e:
                 defer(msg.id, f"Disk full while downloading {dest.name}: {e}. Kept pending.")
                 return
+            finally:
+                in_flight["bytes"] -= media_size or 0
 
             if success:
                 stats["downloaded"] += 1

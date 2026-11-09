@@ -219,8 +219,8 @@ class Config(BaseModel):
     @field_validator("min_free_space")
     @classmethod
     def validate_min_free_space(cls, v: str) -> str:
-        """Fail fast on malformed sizes."""
-        if v:
+        """Fail fast on malformed sizes. Empty or 0 turns the check off."""
+        if v and v.strip() != "0":
             from src.config.source_parser import parse_size
             try:
                 parse_size(v)
