@@ -304,6 +304,44 @@ class TestConcurrentDownloads:
         assert deferred == {2}
 
 
+    async def test_bytes_already_written_are_not_counted_twice(self, tmp_path, monkeypatch):
+        # free_bytes already reflects what a running transfer wrote; only its unwritten
+        # rest is reserved (Copilot on #115). 4 GB free, 1 GB reserve, the first 2 GB file
+        # has written 1.5 GB: 0.5 GB still reserved, so a 2 GB file fits.
+        import asyncio
+
+        set_free(monkeypatch, 4 * GB)
+        # A sparse partial file: 1.5 GB by size, nothing on disk
+        with open(tmp_path / "book.pdf.1.partial", "wb") as partial:
+            partial.truncate(GB + GB // 2)
+
+        async def fake_dest(download_dir, source, fname, source_config, flat):
+            return download_dir / fname
+
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow_download(*args, **kwargs):
+            started.set()
+            await release.wait()
+            return True
+
+        monkeypatch.setattr(main_module, "build_destination_path", fake_dest)
+        monkeypatch.setattr(main_module, "download_media_with_retry", AsyncMock(side_effect=slow_download))
+        a, b = make_msg(1, 2 * GB), make_msg(2, 2 * GB)
+        b.document.file_name = "other.pdf"
+        batch = asyncio.create_task(download_batch(
+            [a, b], asyncio.Semaphore(2), MagicMock(), tmp_path, MagicMock(), "key",
+            make_cfg("1GB"), logging.getLogger("t"), MagicMock(), MagicMock(),
+        ))
+        await started.wait()
+        await asyncio.sleep(0)
+        release.set()
+        stats, failed, deferred = await batch
+        assert stats["downloaded"] == 2
+        assert deferred == set()
+
+
 class TestEnospcOutsideTheTransfer:
 
     async def test_enospc_creating_the_destination_is_deferred(self, tmp_path, monkeypatch):
