@@ -33,7 +33,7 @@ from src.organization import build_destination_path, is_duplicate, resolve_confl
 from src.sources.base import BaseSource
 from src.state import CursorStore, DownloadHistory, PendingDownloads
 from src.client import create_client, diskspace, download_media_with_retry
-from src.client.downloader import DiskFullError
+from src.client.downloader import DiskFullError, temp_path
 from src.client.hooks import run_post_download_hook
 from src.client.ratelimit import RateLimiter, parse_rate
 from src.notifications import NotificationManager, DiscordNotifier, GenericWebhook
@@ -152,9 +152,13 @@ async def download_batch(
     failed_ids: set[int] = set()
     deferred_ids: set[int] = set()
     reserve = diskspace.reserve_bytes(config)
-    # Bytes still to be written by downloads already started in this batch, so concurrent
-    # downloads can't all pass the check against the same free space.
-    in_flight = {"bytes": 0}
+    # Downloads already started in this batch: msg id -> (size, partial file). Their
+    # unwritten bytes count against the free space, so concurrent downloads can't all pass
+    # the check against the same free space. Written bytes are already in free_bytes.
+    in_flight: dict[int, tuple[int, Path]] = {}
+
+    def unwritten_bytes() -> int:
+        return sum(max(0, size - diskspace.written_bytes(part)) for size, part in in_flight.values())
 
     def defer(msg_id: int, reason: str) -> None:
         log.error(reason)
@@ -226,7 +230,7 @@ async def download_batch(
 
             # Disk space guard (issue #61): keep it pending for the next run
             if reserve:
-                free = diskspace.free_bytes(download_dir) - in_flight["bytes"]
+                free = diskspace.free_bytes(download_dir) - unwritten_bytes()
                 if free < (media_size or 0) + reserve:
                     defer(
                         msg.id,
@@ -243,7 +247,7 @@ async def download_batch(
                 f"(msg {msg.id}, size={getattr(media, 'file_size', 0)} bytes)"
             )
             # No await between the check above and this line, so the claim is atomic
-            in_flight["bytes"] += media_size or 0
+            in_flight[msg.id] = (media_size or 0, temp_path(dest, msg.id))
             try:
                 success = await download_media_with_retry(
                     client,
@@ -258,7 +262,7 @@ async def download_batch(
                 defer(msg.id, f"Disk full while downloading {dest.name}: {e}. Kept pending.")
                 return
             finally:
-                in_flight["bytes"] -= media_size or 0
+                in_flight.pop(msg.id, None)
 
             if success:
                 stats["downloaded"] += 1
