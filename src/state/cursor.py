@@ -4,7 +4,9 @@ Replaces YAML with SQLite for better concurrency, reliability, and crash recover
 Uses WAL mode for concurrent access and implements retry logic for database locking.
 """
 
+import shutil
 import sqlite3
+import tempfile
 import time
 import yaml
 from pathlib import Path
@@ -24,14 +26,23 @@ def open_sqlite(db_path: str, *, ephemeral: bool = False) -> sqlite3.Connection:
     WAL files are never created or written.
     """
     if ephemeral:
+        # Copy the file and any WAL/SHM sidecars to a temp dir, then open the
+        # copy. Opening the original with mode=ro can still create sidecars.
         conn = sqlite3.connect(":memory:")
         path = Path(db_path)
         if path.is_file():
-            src = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
-            try:
-                src.backup(conn)
-            finally:
-                src.close()
+            with tempfile.TemporaryDirectory() as tmp:
+                dest = Path(tmp) / path.name
+                shutil.copyfile(path, dest)
+                for suffix in ("-wal", "-shm"):
+                    side = Path(str(path) + suffix)
+                    if side.is_file():
+                        shutil.copyfile(side, Path(str(dest) + suffix))
+                src = sqlite3.connect(dest)
+                try:
+                    src.backup(conn)
+                finally:
+                    src.close()
     else:
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(db_path)

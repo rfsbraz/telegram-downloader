@@ -7,6 +7,8 @@ Creates properly configured Pyrogram clients with:
 """
 
 import os
+import shutil
+import tempfile
 from pathlib import Path
 from pyrogram import Client
 
@@ -44,9 +46,21 @@ def create_client(config: Config) -> Client:
         raise ValueError("api_hash must be a non-empty string")
 
     # Ensure session directory exists with secure permissions, except in
-    # dry-run, which must not create the session dir or its files.
+    # dry-run, which must not create or modify the real session dir or file.
     session_dir = Path(config.session_dir)
-    if not getattr(config, "dry_run", False):
+    dry_run = getattr(config, "dry_run", False)
+    dry_run_tmpdir = None
+    if dry_run:
+        session_file = session_dir / "telegram_downloader.session"
+        if not session_file.is_file():
+            raise ValueError(
+                f"Dry-run needs an existing session file at {session_file}; "
+                "it will not create or migrate one."
+            )
+        dry_run_tmpdir = tempfile.TemporaryDirectory(prefix="tdl-dry-run-session-")
+        workdir = Path(dry_run_tmpdir.name)
+        shutil.copyfile(session_file, workdir / session_file.name)
+    else:
         session_dir.mkdir(parents=True, exist_ok=True)
         # Set directory permissions to 700 (owner-only: rwx------)
         # This works on both Unix and Windows (Windows restricts to owner)
@@ -55,13 +69,14 @@ def create_client(config: Config) -> Client:
         except (OSError, NotImplementedError):
             # Windows may not support chmod, but directory ACLs still provide owner-only access
             pass
+        workdir = session_dir
 
     # Build client arguments
     client_kwargs = {
         "name": "telegram_downloader",
         "api_id": config.api_id,
         "api_hash": config.api_hash,
-        "workdir": str(session_dir),
+        "workdir": str(workdir),
 
         # Daemon-optimized settings for long-running operation
         # These settings improve stability and reduce resource usage for continuous operation
@@ -80,4 +95,8 @@ def create_client(config: Config) -> Client:
 
     # Create and return unauthenticated client
     # Caller must use `async with client:` to authenticate and start
-    return Client(**client_kwargs)
+    client = Client(**client_kwargs)
+    # Keep the temp copy alive for the client lifetime; discard on close.
+    if dry_run_tmpdir is not None:
+        client._dry_run_session_tmpdir = dry_run_tmpdir
+    return client

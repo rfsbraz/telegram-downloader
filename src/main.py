@@ -129,20 +129,31 @@ async def dry_run_source(
     display_name: str,
     planned_ids: set[str] | None = None,
     planned_paths: dict[Path, int] | None = None,
+    stats: dict | None = None,
 ) -> dict:
     """Evaluate filters and destinations for one source without writing anything."""
-    stats = {
-        "downloaded": 0,
-        "skipped_duplicate": 0,
-        "skipped_tracked": 0,
-        "skipped_error": 0,
-        "skipped_filter": 0,
-        "deferred_low_space": 0,
-        "bytes_downloaded": 0,
-    }
+    if stats is None:
+        stats = {
+            "downloaded": 0,
+            "skipped_duplicate": 0,
+            "skipped_tracked": 0,
+            "skipped_error": 0,
+            "skipped_filter": 0,
+            "deferred_low_space": 0,
+            "bytes_downloaded": 0,
+        }
     planned_ids = planned_ids if planned_ids is not None else set()
     planned_paths = planned_paths if planned_paths is not None else {}
-    async for msg in source.iterate_new_media(last_seen_id):
+    messages = []
+    iterate_error = None
+    try:
+        async for msg in source.iterate_new_media(last_seen_id):
+            messages.append(msg)
+    except Exception as exc:
+        iterate_error = exc
+    # Normal downloads process pending batches oldest-first. Preview the same way.
+    messages.sort(key=lambda m: m.id)
+    for msg in messages:
         _media, fname, size, unique = _media_info(msg)
         if hasattr(composite_filter, "rejection_reason"):
             reason = await composite_filter.rejection_reason(msg)
@@ -157,8 +168,8 @@ async def dry_run_source(
             stats["skipped_filter"] += 1
             continue
 
-        if unique and (
-            (history and history.contains(unique)) or unique in planned_ids
+        if unique and history is not None and (
+            history.contains(unique) or unique in planned_ids
         ):
             log.info(
                 f"Would skip (already tracked): {fname} ({format_bytes(size)}) "
@@ -202,8 +213,10 @@ async def dry_run_source(
         stats["downloaded"] += 1
         stats["bytes_downloaded"] += size
         planned_paths[dest] = size
-        if unique:
+        if unique and history is not None:
             planned_ids.add(unique)
+    if iterate_error is not None:
+        raise iterate_error
     return stats
 
 
@@ -556,21 +569,34 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
             log.info("=" * 60)
 
             if dry_run:
-                batch_stats = await dry_run_source(
-                    source,
-                    composite_filter,
-                    source_config,
-                    last_seen_id,
-                    Path(cfg.download_dir),
-                    cfg.flat_structure,
-                    history,
-                    log,
-                    display_name,
-                    planned_ids=planned_ids,
-                    planned_paths=planned_paths,
-                )
-                for key in totals:
-                    totals[key] += batch_stats.get(key, 0)
+                batch_stats = {
+                    "downloaded": 0,
+                    "skipped_duplicate": 0,
+                    "skipped_tracked": 0,
+                    "skipped_error": 0,
+                    "skipped_filter": 0,
+                    "deferred_low_space": 0,
+                    "bytes_downloaded": 0,
+                }
+                try:
+                    await dry_run_source(
+                        source,
+                        composite_filter,
+                        source_config,
+                        last_seen_id,
+                        Path(cfg.download_dir),
+                        cfg.flat_structure,
+                        history,
+                        log,
+                        display_name,
+                        planned_ids=planned_ids,
+                        planned_paths=planned_paths,
+                        stats=batch_stats,
+                    )
+                finally:
+                    # Keep partial preview counts even if this source fails later.
+                    for key in totals:
+                        totals[key] += batch_stats.get(key, 0)
                 continue
 
             max_downloads = cfg.max_downloads_per_run or 0

@@ -381,7 +381,8 @@ class TestMainDryRunWritesNothing:
 
         monkeypatch.setattr("src.client.factory.Client", lambda **_kwargs: MagicMock())
         cfg = _dry_run_config(tmp_path)
-        create_client(cfg)
+        with pytest.raises(ValueError, match="existing session file"):
+            create_client(cfg)
         assert not cfg.session_dir.exists()
 
 
@@ -573,23 +574,22 @@ class TestMainDryRunWalAndSession:
         db_path = cfg_dir / "state.db"
         store = CursorStore(str(db_path))
         store.set("channel:-100111", 42)
-        # Leave WAL sidecars in place (do not checkpoint or delete them)
+        # Leave the writer open so WAL sidecars stay in place (do not checkpoint)
         wal = Path(str(db_path) + "-wal")
         shm = Path(str(db_path) + "-shm")
-        assert wal.exists() or True  # WAL may or may not have been created
+
         def fingerprint(path: Path):
             if not path.exists():
                 return (False, 0, None)
             return (True, path.stat().st_size, hashlib.sha256(path.read_bytes()).hexdigest())
 
         before = {path: fingerprint(path) for path in (db_path, wal, shm)}
-        store.close()
-        # Re-open as dry-run would, without touching finalize helpers
         ephemeral = CursorStore(str(db_path), ephemeral=True)
         assert ephemeral.get("channel:-100111") == 42
         ephemeral.close()
         for path, snap in before.items():
             assert fingerprint(path) == snap, path
+        store.close()
 
     @pytest.mark.asyncio
     async def test_create_client_dry_run_does_not_modify_existing_session(
