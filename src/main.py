@@ -102,20 +102,19 @@ def format_bytes(num_bytes: int) -> str:
     return f"{value:.1f} TB"
 
 
-def _media_info(msg: Message) -> tuple[object | None, str, int, str | None]:
+def _media_info(
+    msg: Message, include_photos: bool = False
+) -> tuple[object | None, str, int, str | None]:
     """Return (media, filename, size, file_unique_id) for a message."""
-    media = (
-        msg.document or
-        msg.audio or
-        msg.video or
-        msg.animation or
-        msg.voice or
-        msg.video_note
-    )
-    fname = (getattr(media, "file_name", None) if media else None) or f"message_{msg.id}"
-    size = getattr(media, "file_size", 0) if media else 0
-    unique = getattr(media, "file_unique_id", None) if media else None
-    return media, fname, size or 0, unique
+    media = get_media(msg, include_photos=include_photos)
+    if media:
+        return (
+            media,
+            media_filename(msg, media),
+            getattr(media, "file_size", 0) or 0,
+            getattr(media, "file_unique_id", None),
+        )
+    return None, f"message_{msg.id}", 0, None
 
 
 async def dry_run_source(
@@ -149,9 +148,10 @@ async def dry_run_source(
     # Keep only compact metadata for matches, then reserve oldest-first.
     candidates: list[tuple[int, str, int, str | None]] = []
     iterate_error = None
+    include_photos = getattr(composite_filter, "include_photos", False)
     try:
         async for msg in source.iterate_new_media(last_seen_id):
-            _media, fname, size, unique = _media_info(msg)
+            _media, fname, size, unique = _media_info(msg, include_photos)
             if hasattr(composite_filter, "rejection_reason"):
                 reason = await composite_filter.rejection_reason(msg)
             elif not await composite_filter.matches(msg):
