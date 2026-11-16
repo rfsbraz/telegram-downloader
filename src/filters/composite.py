@@ -55,3 +55,11 @@ class CompositeFilter(BaseFilter):
                 return False
 
         return True
+
+    async def rejection_reason(self, message: Message) -> str | None:
+        """Return why this message would be skipped, or None if it matches."""
+        for f in self.filters:
+            if not await f.matches(message):
+                return getattr(f, "skip_reason", "filter")
+        return None
+

@@ -117,6 +117,24 @@ These are standard Docker environment variables, not prefixed with `TDL_`.
     # PUID, PGID, and TZ are Docker-only (not in config.yaml)
     ```
 
+## Dry run
+
+Set `TDL_DRY_RUN=true` (or `dry_run: true` in YAML) to preview a run without writing anything. Filters are evaluated the same way as a real run. Each matching file is logged as a would-download line with its name, size, source, and destination path. Files that would be skipped are logged with the reason: extension, size, pattern, date, already tracked, or duplicate.
+
+No files are downloaded, destination folders are not created, and cursors, history, and the pending queue are not updated. A dry-run also does not create the session directory, `state.db`, or WAL files, and it does not migrate `state.yaml`. If `state.db` already exists, cursors and history are read through an in-memory copy so the on-disk state stays untouched.
+
+The preview tracks planned `file_unique_id` values and destination paths in memory across sources, so a file already counted earlier is skipped as already tracked, and same-name collisions use the same `resolve_conflict()` suffix a real run would pick.
+
+Dry-run scans from the current cursor only and does not read or write the pending queue, so retries waiting below the cursor are not included. `max_downloads_per_run` is not applied, so the preview lists every match instead of one limited batch.
+
+The run summary reports the count and total bytes that would transfer.
+
+Dry-run pairs naturally with single-shot mode (`TDL_DAEMON_ENABLED=false`). If it is left on in daemon mode, every check logs a warning so the flag is not forgotten.
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `TDL_DRY_RUN` | boolean | `false` | Preview what would download, without writing files or state |
+
 ## Daemon Configuration
 
 Controls continuous background operation.

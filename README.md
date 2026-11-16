@@ -106,6 +106,17 @@ All configuration is done via environment variables with the `TDL_` prefix. See 
 - TDL_GLOBAL_FILTERS_INCLUDE_PHOTOS=true
 ```
 
+### Dry run
+
+Preview what a run would download without writing anything:
+
+```yaml
+- TDL_DRY_RUN=true
+- TDL_DAEMON_ENABLED=false
+```
+
+Use this with a single-shot run to check filters first. Nothing is downloaded, and the session directory, `state.db`, cursors, history, and the pending queue are left unchanged. The preview tracks planned files in memory so duplicates and name collisions match a real run. It scans from the current cursor only (pending retries are not included) and does not apply `max_downloads_per_run`, so every match is listed. If dry-run is left on in daemon mode, every check logs a warning.
+
 ### Daemon Mode
 
 ```yaml

@@ -85,6 +85,11 @@ async def _wait_for_cooldown(log: logging.Logger) -> None:
         await asyncio.sleep(remaining)
 
 
+def temp_path(dest_path: Path, message_id: int) -> Path:
+    """The .partial file a download streams into before it is renamed."""
+    return dest_path.with_suffix(dest_path.suffix + f".{message_id}.partial")
+
+
 async def download_media_with_retry(
     client: Client,
     message: Message,
@@ -147,9 +152,7 @@ async def download_media_with_retry(
     # Use temporary .partial file during download. The message ID makes the
     # temp name unique so concurrent downloads of same-named files never
     # stream into the same file.
-    dest_temp = dest_path.with_suffix(
-        dest_path.suffix + f".{message.id}.partial"
-    )
+    dest_temp = temp_path(dest_path, message.id)
 
     # Track cumulative progress so the rate limiter sees byte deltas
     progress_state = {"last": 0}

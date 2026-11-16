@@ -4,7 +4,10 @@ Replaces YAML with SQLite for better concurrency, reliability, and crash recover
 Uses WAL mode for concurrent access and implements retry logic for database locking.
 """
 
+import hashlib
+import shutil
 import sqlite3
+import tempfile
 import time
 import yaml
 from pathlib import Path
@@ -14,6 +17,75 @@ from typing import Optional
 class StateError(Exception):
     """Exception raised for state-related failures (corruption, locking, etc.)."""
     pass
+
+
+def _fingerprint_sqlite_files(path: Path) -> tuple:
+    """Return hashes of a SQLite main file and any WAL/SHM sidecars."""
+    parts = []
+    for candidate in (path, Path(str(path) + "-wal"), Path(str(path) + "-shm")):
+        if candidate.is_file():
+            parts.append(
+                (candidate.name, candidate.stat().st_size, hashlib.sha256(candidate.read_bytes()).hexdigest())
+            )
+        else:
+            parts.append((candidate.name, 0, None))
+    return tuple(parts)
+
+
+def _copy_sqlite_files(src: Path, dest: Path) -> None:
+    """Copy a SQLite main file and sidecars without opening them."""
+    shutil.copyfile(src, dest)
+    for suffix in ("-wal", "-shm"):
+        side = Path(str(src) + suffix)
+        target = Path(str(dest) + suffix)
+        if side.is_file():
+            shutil.copyfile(side, target)
+        elif target.exists():
+            target.unlink()
+
+
+def open_sqlite(db_path: str, *, ephemeral: bool = False) -> sqlite3.Connection:
+    """Open a SQLite connection, optionally as an in-memory clone.
+
+    When ephemeral is true, the on-disk file and any WAL/SHM sidecars are
+    copied into a temp directory without opening the originals, then backed
+    up into memory. The copy is retried until the source files are unchanged
+    for the duration of the copy, so a concurrent checkpoint cannot tear
+    the snapshot. The session directory, state.db, and WAL files are never
+    created or written.
+    """
+    if ephemeral:
+        conn = sqlite3.connect(":memory:")
+        path = Path(db_path)
+        if path.is_file():
+            with tempfile.TemporaryDirectory() as tmp:
+                dest = Path(tmp) / path.name
+                consistent = False
+                for _ in range(8):
+                    before = _fingerprint_sqlite_files(path)
+                    _copy_sqlite_files(path, dest)
+                    after = _fingerprint_sqlite_files(path)
+                    if before == after:
+                        consistent = True
+                        break
+                if not consistent:
+                    raise StateError(
+                        f"Could not take a consistent snapshot of {db_path}"
+                    )
+                src = sqlite3.connect(dest)
+                try:
+                    src.backup(conn)
+                finally:
+                    src.close()
+    else:
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA journal_mode=WAL")
+
+    result = conn.execute("PRAGMA integrity_check").fetchone()
+    if result[0] != "ok":
+        raise StateError(f"Database integrity check failed: {result[0]}")
+    return conn
 
 
 class CursorStore:
@@ -27,31 +99,19 @@ class CursorStore:
     - YAML migration support for existing state files
     """
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, *, ephemeral: bool = False):
         """Initialize SQLite connection with WAL mode.
 
         Args:
             db_path: Path to SQLite database file
+            ephemeral: If true, use an in-memory clone and do not write the file
 
         Raises:
             StateError: If database is corrupted or initialization fails
         """
         self.db_path = db_path
         self._connection: Optional[sqlite3.Connection] = None
-
-        # Create parent directory if needed
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-
-        # Connect and initialize
-        self._connection = sqlite3.connect(db_path)
-
-        # Enable WAL mode for concurrent access
-        self._connection.execute("PRAGMA journal_mode=WAL")
-
-        # Check database integrity
-        result = self._connection.execute("PRAGMA integrity_check").fetchone()
-        if result[0] != "ok":
-            raise StateError(f"Database integrity check failed: {result[0]}")
+        self._connection = open_sqlite(db_path, ephemeral=ephemeral)
 
         # Create table if not exists
         self._connection.execute("""
