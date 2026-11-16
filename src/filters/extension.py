@@ -8,6 +8,7 @@ current downloader.py looks_like_ebook logic.
 from typing import Iterable
 from pyrogram.types import Message
 from src.filters.base import BaseFilter
+from src.media import get_media, is_photo_only, photo_filename
 
 
 def _endswith_any(name: str, exts: Iterable[str]) -> bool:
@@ -43,7 +44,8 @@ class ExtensionFilter(BaseFilter):
         self,
         ebook_exts: list[str],
         allow_archives: bool,
-        archive_exts: list[str]
+        archive_exts: list[str],
+        include_photos: bool = False,
     ):
         """
         Initialize extension filter.
@@ -57,6 +59,7 @@ class ExtensionFilter(BaseFilter):
         self.ebook_exts = [ext.lower() for ext in ebook_exts]
         self.allow_archives = allow_archives
         self.archive_exts = [ext.lower() for ext in archive_exts]
+        self.include_photos = include_photos
 
     async def matches(self, message: Message) -> bool:
         """
@@ -68,24 +71,21 @@ class ExtensionFilter(BaseFilter):
         Returns:
             True if message has media with allowed extension
         """
-        # Get media object (document, audio, video, etc.)
-        media_obj = (
-            message.document or
-            message.audio or
-            message.video or
-            message.animation or
-            message.voice or
-            message.video_note
-        )
+        # Include photos so a generated .jpg name can be matched, even when
+        # include_photos is off (the composite filter is the media-type gate).
+        media_obj = get_media(message, include_photos=True)
 
         if not media_obj:
             return False
 
-        # Extract filename
-        fname = getattr(media_obj, "file_name", None)
-        if not fname:
-            # Generate fallback filename from MIME type
-            fname = self._generate_fallback_filename(message, media_obj)
+        if is_photo_only(message):
+            if self.include_photos:
+                return True
+            fname = photo_filename(message)
+        else:
+            fname = getattr(media_obj, "file_name", None)
+            if not fname:
+                fname = self._generate_fallback_filename(message, media_obj)
 
         # Check against allowed extensions
         if _endswith_any(fname, self.ebook_exts):

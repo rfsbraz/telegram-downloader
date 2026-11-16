@@ -7,6 +7,7 @@ combinations like: "PDF files, 1-10MB, from last week".
 
 from pyrogram.types import Message
 from src.filters.base import BaseFilter
+from src.media import is_photo_only
 
 
 class CompositeFilter(BaseFilter):
@@ -24,14 +25,16 @@ class CompositeFilter(BaseFilter):
         ])
     """
 
-    def __init__(self, filters: list[BaseFilter]):
+    def __init__(self, filters: list[BaseFilter], include_photos: bool = False):
         """
         Initialize composite filter.
 
         Args:
             filters: List of filters to combine with AND logic
+            include_photos: Accept Telegram compressed photos (default off)
         """
         self.filters = filters
+        self.include_photos = include_photos
 
     async def matches(self, message: Message) -> bool:
         """
@@ -43,6 +46,9 @@ class CompositeFilter(BaseFilter):
         Returns:
             True if message passes all filters (AND logic)
         """
+        if is_photo_only(message) and not self.include_photos:
+            return False
+
         # Short-circuit AND: return False on first failure
         for f in self.filters:
             if not await f.matches(message):
@@ -52,6 +58,8 @@ class CompositeFilter(BaseFilter):
 
     async def rejection_reason(self, message: Message) -> str | None:
         """Return why this message would be skipped, or None if it matches."""
+        if is_photo_only(message) and not self.include_photos:
+            return "photos disabled"
         for f in self.filters:
             if not await f.matches(message):
                 return getattr(f, "skip_reason", "filter")

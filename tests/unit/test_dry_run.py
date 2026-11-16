@@ -48,7 +48,17 @@ class YieldingSource:
                 yield msg
 
 
-def make_run_args(tmp_path, messages, monkeypatch, *, dry_run=True, history=None, extensions=None):
+def make_run_args(
+    tmp_path,
+    messages,
+    monkeypatch,
+    *,
+    dry_run=True,
+    history=None,
+    extensions=None,
+    include_photos=False,
+    include_patterns=None,
+):
     cfg = MagicMock()
     cfg.dry_run = dry_run
     cfg.max_concurrent_downloads = 1
@@ -60,7 +70,13 @@ def make_run_args(tmp_path, messages, monkeypatch, *, dry_run=True, history=None
 
     source = YieldingSource("Preview Channel", messages)
     source_config = SourceConfig(url="https://t.me/preview", name="Preview Channel")
-    filt = build_filters(GlobalFilters(extensions=extensions or [".pdf", ".epub", ".mobi"]))
+    kwargs = dict(
+        extensions=extensions or [".pdf", ".epub", ".mobi"],
+        include_photos=include_photos,
+    )
+    if include_patterns is not None:
+        kwargs["include_patterns"] = include_patterns
+    filt = build_filters(GlobalFilters(**kwargs))
 
     state_store = MagicMock()
     state_store.get.return_value = 0
@@ -108,11 +124,7 @@ class TestRejectionReason:
 
     @pytest.mark.asyncio
     async def test_pattern(self):
-        # Construct PatternFilter directly: build_filters still uses the
-        # wrong kwargs on main (tracked in #123).
-        filt = CompositeFilter([
-            PatternFilter(include=["*ebook*"], exclude=["*sample*"]),
-        ])
+        filt = build_filters(GlobalFilters(include_patterns=["*ebook*"], exclude_patterns=["*sample*"]))
         assert await filt.rejection_reason(make_msg(1, file_name="sample.pdf")) == "pattern"
         assert await filt.rejection_reason(make_msg(2, file_name="my-ebook.pdf")) is None
 
@@ -686,3 +698,99 @@ class TestMainDryRunWalAndSession:
         assert session.read_bytes() == before
         # Original directory still has only the original session file set
         assert session.exists()
+
+
+class TestDryRunPhotos:
+    """Opt-in photos must preview correctly under TDL_DRY_RUN."""
+
+    @pytest.mark.asyncio
+    async def test_plans_photo_with_identity_aware_name(self, tmp_path, monkeypatch, caplog):
+        from src.media import photo_filename
+        from tests.unit.media.test_include_photos import photo_msg
+
+        msg = photo_msg(msg_id=30, file_unique_id="photo-a", file_size=80000)
+        expected = photo_filename(msg)
+        args, _, state_store, pending, download = make_run_args(
+            tmp_path, [msg], monkeypatch, include_photos=True
+        )
+        with caplog.at_level(logging.INFO):
+            summary = await run_check(*args)
+        assert summary["files_downloaded"] == 1
+        assert summary["dry_run"] is True
+        assert (
+            f"Would download: {expected} (78.1 KB) from Preview Channel -> "
+            in caplog.text
+        )
+        assert "message_30" not in caplog.text
+        download.assert_not_awaited()
+        state_store.set.assert_not_called()
+        pending.add_batch.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_skips_photos_when_the_flag_is_off(self, tmp_path, monkeypatch, caplog):
+        from tests.unit.media.test_include_photos import photo_msg
+
+        msg = photo_msg(msg_id=30, file_unique_id="photo-a", file_size=80000)
+        args, _, state_store, pending, download = make_run_args(
+            tmp_path, [msg], monkeypatch, include_photos=False
+        )
+        with caplog.at_level(logging.INFO):
+            summary = await run_check(*args)
+        assert summary["files_downloaded"] == 0
+        assert "Would download:" not in caplog.text
+        assert "Would skip" in caplog.text
+        download.assert_not_awaited()
+        state_store.set.assert_not_called()
+        pending.add_batch.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_skips_photos_when_flag_is_off_even_if_jpg_is_allowed(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        from tests.unit.media.test_include_photos import photo_msg
+
+        msg = photo_msg(msg_id=30, file_unique_id="photo-a", file_size=80000)
+        args, _, state_store, pending, download = make_run_args(
+            tmp_path, [msg], monkeypatch, include_photos=False, extensions=[".jpg"]
+        )
+        with caplog.at_level(logging.INFO):
+            summary = await run_check(*args)
+        assert summary["files_downloaded"] == 0
+        assert "Would download:" not in caplog.text
+        assert "Would skip (photos disabled):" in caplog.text
+        download.assert_not_awaited()
+        state_store.set.assert_not_called()
+        pending.add_batch.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_pattern_filter_from_build_filters_uses_generated_photo_name(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        from src.media import photo_filename
+        from tests.unit.media.test_include_photos import photo_msg
+
+        msg = photo_msg(msg_id=30, file_unique_id="photo-a", file_size=80000)
+        expected = photo_filename(msg)
+        accepted, *_ = make_run_args(
+            tmp_path,
+            [msg],
+            monkeypatch,
+            include_photos=True,
+            include_patterns=["photo_*.jpg"],
+        )
+        rejected, _, _, _, download = make_run_args(
+            tmp_path,
+            [msg],
+            monkeypatch,
+            include_photos=True,
+            include_patterns=["*.pdf"],
+        )
+        with caplog.at_level(logging.INFO):
+            ok = await run_check(*accepted)
+            no = await run_check(*rejected)
+        assert ok["files_downloaded"] == 1
+        assert expected in caplog.text
+        assert no["files_downloaded"] == 0
+        assert "Would skip (pattern):" in caplog.text
+        download.assert_not_awaited()
+

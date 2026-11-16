@@ -12,6 +12,7 @@ from pyrogram import Client
 from pyrogram.types import Message
 
 from src.sources.base import BaseSource
+from src.media import has_source_media
 
 
 class ChannelSource(BaseSource):
@@ -67,16 +68,7 @@ class ChannelSource(BaseSource):
                 break
 
             # Check for media attachments
-            media_obj = (
-                msg.document or
-                msg.audio or
-                msg.video or
-                msg.animation or
-                msg.voice or
-                msg.video_note
-            )
-
-            if media_obj:
+            if has_source_media(msg):
                 yield msg
 
     def get_cursor_key(self) -> str:

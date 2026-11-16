@@ -9,6 +9,7 @@ import re
 import fnmatch
 from pyrogram.types import Message
 from src.filters.base import BaseFilter
+from src.media import get_media, is_photo_only, photo_filename
 
 
 class PatternFilter(BaseFilter):
@@ -98,21 +99,14 @@ class PatternFilter(BaseFilter):
         Returns:
             True if filename passes include/exclude filters
         """
-        # Get media object (same types as ExtensionFilter)
-        media_obj = (
-            message.document or
-            message.audio or
-            message.video or
-            message.animation or
-            message.voice or
-            message.video_note
-        )
+        media_obj = get_media(message, include_photos=True)
 
         if not media_obj:
             return False
 
-        # Extract filename
         filename = getattr(media_obj, "file_name", None)
+        if not filename and is_photo_only(message):
+            filename = photo_filename(message)
         if not filename:
             # No filename to filter - pass through
             return True

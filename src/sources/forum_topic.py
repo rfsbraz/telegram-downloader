@@ -12,6 +12,7 @@ from pyrogram.types import Message
 from pyrogram.enums import MessagesFilter
 
 from src.sources.base import BaseSource
+from src.media import has_source_media
 
 
 async def export_link_contains_topic(
@@ -156,14 +157,7 @@ class ForumTopicSource(BaseSource):
                 continue
 
             # Yield messages with media attachments
-            if (
-                m.document or
-                m.audio or
-                m.video or
-                m.animation or
-                m.voice or
-                m.video_note
-            ):
+            if has_source_media(m):
                 yield m
 
     def get_cursor_key(self) -> str:

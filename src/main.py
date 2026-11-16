@@ -31,6 +31,7 @@ from src.config.schema import SourceConfig
 from src.config.source_parser import parse_sources, validate_source_access
 from src.organization import build_destination_path, is_duplicate, resolve_conflict
 from src.sources.base import BaseSource
+from src.media import collect_matching_ids, get_media, is_photo_only, media_filename
 from src.state import CursorStore, DownloadHistory, PendingDownloads
 from src.client import create_client, diskspace, download_media_with_retry
 from src.client.downloader import DiskFullError, temp_path
@@ -101,20 +102,19 @@ def format_bytes(num_bytes: int) -> str:
     return f"{value:.1f} TB"
 
 
-def _media_info(msg: Message) -> tuple[object | None, str, int, str | None]:
+def _media_info(
+    msg: Message, include_photos: bool = False
+) -> tuple[object | None, str, int, str | None]:
     """Return (media, filename, size, file_unique_id) for a message."""
-    media = (
-        msg.document or
-        msg.audio or
-        msg.video or
-        msg.animation or
-        msg.voice or
-        msg.video_note
-    )
-    fname = (getattr(media, "file_name", None) if media else None) or f"message_{msg.id}"
-    size = getattr(media, "file_size", 0) if media else 0
-    unique = getattr(media, "file_unique_id", None) if media else None
-    return media, fname, size or 0, unique
+    media = get_media(msg, include_photos=include_photos)
+    if media:
+        return (
+            media,
+            media_filename(msg, media),
+            getattr(media, "file_size", 0) or 0,
+            getattr(media, "file_unique_id", None),
+        )
+    return None, f"message_{msg.id}", 0, None
 
 
 async def dry_run_source(
@@ -148,9 +148,10 @@ async def dry_run_source(
     # Keep only compact metadata for matches, then reserve oldest-first.
     candidates: list[tuple[int, str, int, str | None]] = []
     iterate_error = None
+    include_photos = getattr(composite_filter, "include_photos", False)
     try:
         async for msg in source.iterate_new_media(last_seen_id):
-            _media, fname, size, unique = _media_info(msg)
+            _media, fname, size, unique = _media_info(msg, include_photos)
             if hasattr(composite_filter, "rejection_reason"):
                 reason = await composite_filter.rejection_reason(msg)
             elif not await composite_filter.matches(msg):
@@ -234,6 +235,7 @@ async def download_batch(
     source_config: SourceConfig,
     history: "DownloadHistory | None" = None,
     limiter: "RateLimiter | None" = None,
+    include_photos: bool = False,
 ) -> tuple[dict, set[int], set[int]]:
     """Download a batch of messages concurrently with semaphore limit.
 
@@ -254,7 +256,7 @@ async def download_batch(
     Returns:
         Tuple of (stats, failed_message_ids, deferred_message_ids).
         stats is a counter dict: downloaded, skipped_duplicate, skipped_tracked,
-        skipped_error, deferred_low_space, bytes_downloaded.
+        skipped_error, skipped_filter, deferred_low_space, bytes_downloaded.
         Failed IDs are messages where download_media_with_retry returned False.
         Skips (history hit, duplicate, path error) are NOT failures.
         Deferred IDs did not fit in the free space minus min_free_space
@@ -266,6 +268,7 @@ async def download_batch(
         "skipped_duplicate": 0,
         "skipped_tracked": 0,
         "skipped_error": 0,
+        "skipped_filter": 0,
         "deferred_low_space": 0,
         "bytes_downloaded": 0,
     }
@@ -289,16 +292,17 @@ async def download_batch(
         """Download single message with semaphore."""
 
         async with semaphore:  # Acquire semaphore slot
-            # Extract media and filename
-            media = (
-                msg.document or
-                msg.audio or
-                msg.video or
-                msg.animation or
-                msg.voice or
-                msg.video_note
-            )
-            fname = getattr(media, "file_name", None) or f"message_{msg.id}"
+            # Extract media and filename. Honour the source photo setting so
+            # photos queued while include_photos was on are not downloaded
+            # after it is turned off, and are dropped from pending.
+            if is_photo_only(msg) and not include_photos:
+                fname = media_filename(msg, msg.photo) or f"message_{msg.id}"
+                log.info(f"Skip (photos disabled): {fname}")
+                cursor_store.set(cursor_key, msg.id)
+                stats["skipped_filter"] += 1
+                return
+            media = get_media(msg, include_photos=include_photos)
+            fname = media_filename(msg, media) if media else f"message_{msg.id}"
             media_size = getattr(media, "file_size", 0)
 
             # Check download history for persistent deduplication
@@ -610,19 +614,17 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
             if pending and pending.has_pending(cursor_key):
                 # Resume mode: scan only for NEW messages above the pending range
                 scan_above = pending.get_max_message_id(cursor_key)
-                new_ids = []
-                async for msg in source.iterate_new_media(scan_above):
-                    if await composite_filter.matches(msg):
-                        new_ids.append(msg.id)
+                new_ids = await collect_matching_ids(
+                    source, scan_above, composite_filter, log
+                )
                 if new_ids:
                     pending.add_batch(cursor_key, new_ids)
                     log.info(f"Added {len(new_ids)} new message(s) to pending queue")
             else:
                 # Fresh scan: stream matching IDs into pending (no Message accumulation)
-                scanned_ids = []
-                async for msg in source.iterate_new_media(last_seen_id):
-                    if await composite_filter.matches(msg):
-                        scanned_ids.append(msg.id)
+                scanned_ids = await collect_matching_ids(
+                    source, last_seen_id, composite_filter, log
+                )
 
                 if not scanned_ids:
                     log.info("No new matching documents.")
@@ -673,6 +675,7 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
                     candidates, semaphore, client, Path(cfg.download_dir),
                     state_store, cursor_key, cfg, log, source, source_config, history,
                     limiter,
+                    include_photos=getattr(composite_filter, "include_photos", False),
                 )
 
                 # Remove from pending: orphaned + processed (everything except
@@ -736,7 +739,7 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
         totals["skipped_duplicate"]
         + totals["skipped_tracked"]
         + totals["skipped_error"]
-        + totals.get("skipped_filter", 0)
+        + totals["skipped_filter"]
     )
     breakdown_parts = []
     if totals["skipped_duplicate"]:
@@ -745,7 +748,7 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
         breakdown_parts.append(f"{totals['skipped_tracked']} already tracked")
     if totals["skipped_error"]:
         breakdown_parts.append(f"{totals['skipped_error']} path error")
-    if totals.get("skipped_filter"):
+    if totals["skipped_filter"]:
         breakdown_parts.append(f"{totals['skipped_filter']} filter")
     breakdown = f" ({', '.join(breakdown_parts)})" if breakdown_parts else ""
 

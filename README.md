@@ -101,6 +101,9 @@ All configuration is done via environment variables with the `TDL_` prefix. See 
 
 # Global defaults (apply to all sources)
 - TDL_GLOBAL_FILTERS_EXTENSIONS=.pdf,.epub
+
+# Compressed Telegram photos (opt-in, default off)
+- TDL_GLOBAL_FILTERS_INCLUDE_PHOTOS=true
 ```
 
 ### Dry run

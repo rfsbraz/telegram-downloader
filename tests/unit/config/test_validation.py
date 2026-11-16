@@ -100,3 +100,27 @@ class TestDetailLevelWarning:
             warn_ignored_settings(cfg, logging.getLogger("test"))
 
         assert caplog.text == ""
+
+
+async def source_includes_photos(config: Config) -> bool:
+    client = MagicMock()
+    client.get_chat = AsyncMock(return_value=make_chat(-100111))
+    (_, composite, _), = await parse_sources(config, client)
+    return composite.include_photos
+
+
+class TestIncludePhotosFallback:
+    async def test_source_filters_without_include_photos_use_global(self, env):
+        env.setenv("TDL_GLOBAL_FILTERS_INCLUDE_PHOTOS", "true")
+        env.setenv("TDL_SOURCES_0_URL", "https://t.me/channel")
+        env.setenv("TDL_SOURCES_0_FILTERS_EXTENSIONS", ".pdf")
+
+        assert await source_includes_photos(load_config("/nonexistent.yaml")) is True
+
+    async def test_source_value_still_overrides_global(self, env):
+        env.setenv("TDL_GLOBAL_FILTERS_INCLUDE_PHOTOS", "true")
+        env.setenv("TDL_SOURCES_0_URL", "https://t.me/channel")
+        env.setenv("TDL_SOURCES_0_FILTERS_INCLUDE_PHOTOS", "false")
+
+        assert await source_includes_photos(load_config("/nonexistent.yaml")) is False
+

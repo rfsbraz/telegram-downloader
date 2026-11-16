@@ -126,6 +126,7 @@ def build_filters(filter_config: GlobalFilters) -> CompositeFilter:
                 ebook_exts=filter_config.extensions,
                 allow_archives=filter_config.allow_archives,
                 archive_exts=filter_config.archive_exts,
+                include_photos=filter_config.include_photos,
             )
         )
 
@@ -146,7 +147,7 @@ def build_filters(filter_config: GlobalFilters) -> CompositeFilter:
             raise ValueError(f"Invalid max_size: {e}")
 
     if min_bytes is not None or max_bytes is not None:
-        filters.append(SizeFilter(min_size=min_bytes, max_size=max_bytes))
+        filters.append(SizeFilter(min_bytes=min_bytes, max_bytes=max_bytes))
 
     # Date filter
     if filter_config.only_after or filter_config.only_before:
@@ -166,7 +167,7 @@ def build_filters(filter_config: GlobalFilters) -> CompositeFilter:
             )
         )
 
-    return CompositeFilter(filters)
+    return CompositeFilter(filters, include_photos=filter_config.include_photos)
 
 
 async def parse_sources(
@@ -244,6 +245,11 @@ async def parse_sources(
                     only_before=sf.only_before if sf.only_before is not None else gf.only_before,
                     include_patterns=sf.include_patterns if sf.include_patterns else gf.include_patterns,
                     exclude_patterns=sf.exclude_patterns if sf.exclude_patterns else gf.exclude_patterns,
+                    include_photos=(
+                        sf.include_photos
+                        if "include_photos" in sf.model_fields_set
+                        else gf.include_photos
+                    ),
                 )
                 composite_filter = build_filters(merged_filters)
             else:
