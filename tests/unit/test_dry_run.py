@@ -217,3 +217,253 @@ class TestDryRunRunCheck:
         download.assert_not_awaited()
         assert "DRY RUN" not in caplog.text
         assert summary.get("dry_run") is not True
+
+
+def _list_state_artifacts(root: Path) -> list[Path]:
+    artifacts = []
+    for path in root.rglob("*"):
+        if not path.is_file() and not path.is_dir():
+            continue
+        name = path.name
+        if name in {"state.db", "state.yaml"} or name.startswith("state.db"):
+            artifacts.append(path)
+    return artifacts
+
+
+def _finalize_sqlite(db_path: Path) -> bytes:
+    import sqlite3
+
+    conn = sqlite3.connect(db_path)
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    conn.close()
+    for suffix in ("-wal", "-shm"):
+        extra = Path(str(db_path) + suffix)
+        if extra.exists():
+            extra.unlink()
+    return db_path.read_bytes()
+
+
+def _dry_run_config(tmp_path: Path):
+    from src.config.schema import Config
+
+    return Config(
+        api_id=12345,
+        api_hash="dummyhash",
+        sources=[{"url": "https://t.me/example"}],
+        dry_run=True,
+        track_downloads=True,
+        session_dir=tmp_path / "sessions",
+        download_dir=tmp_path / "downloads",
+        log_file=None,
+    )
+
+
+class DummyClient:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+def _patch_main_io(monkeypatch, cfg, run_check=None):
+    from src import main as main_module
+
+    async def fake_startup(config, log, client):
+        return []
+
+    async def fake_run_check(*args, **kwargs):
+        if run_check:
+            return await run_check(*args, **kwargs)
+        return {
+            "sources_checked": 0,
+            "sources_failed": 0,
+            "files_downloaded": 0,
+            "files_skipped": 0,
+            "files_failed": 0,
+            "files_deferred_low_space": 0,
+            "low_disk_space": False,
+            "dry_run": True,
+            "bytes_downloaded": "0 B",
+            "duration": "0.0s",
+        }
+
+    monkeypatch.setattr(main_module, "load_config", lambda _path: cfg)
+    monkeypatch.setattr(main_module, "create_client", lambda _cfg: DummyClient())
+    monkeypatch.setattr(main_module, "startup_validation", fake_startup)
+    monkeypatch.setattr(main_module, "run_check", fake_run_check)
+    monkeypatch.setattr(main_module, "build_notification_manager", lambda _cfg, _log: None)
+
+
+class TestMainDryRunWritesNothing:
+    @pytest.mark.asyncio
+    async def test_main_dry_run_on_empty_dir_creates_no_state_files(self, tmp_path, monkeypatch):
+        from src.main import main
+
+        cfg = _dry_run_config(tmp_path)
+        yaml_path = tmp_path / "state.yaml"
+        _patch_main_io(monkeypatch, cfg)
+
+        await main(config_path=str(tmp_path / "config.yaml"), state_yaml_path=yaml_path)
+
+        assert not cfg.session_dir.exists()
+        assert not (cfg.session_dir / "state.db").exists()
+        assert not (tmp_path / "state.db").exists()
+        assert not yaml_path.exists()
+        assert _list_state_artifacts(tmp_path) == []
+        assert not list(tmp_path.glob("**/*-wal"))
+        assert not list(tmp_path.glob("**/*-shm"))
+
+    @pytest.mark.asyncio
+    async def test_main_dry_run_leaves_existing_state_yaml_untouched(self, tmp_path, monkeypatch):
+        from src.main import main
+
+        cfg = _dry_run_config(tmp_path)
+        yaml_path = tmp_path / "state.yaml"
+        original = "channel:-100111: 42\n"
+        yaml_path.write_text(original)
+        before = yaml_path.read_bytes()
+        _patch_main_io(monkeypatch, cfg)
+
+        await main(config_path=str(tmp_path / "config.yaml"), state_yaml_path=yaml_path)
+
+        assert yaml_path.read_bytes() == before
+        assert yaml_path.read_text() == original
+        assert not cfg.session_dir.exists()
+        assert not (cfg.session_dir / "state.db").exists()
+
+    @pytest.mark.asyncio
+    async def test_main_dry_run_reads_existing_stores_without_writing(self, tmp_path, monkeypatch):
+        from src.main import main
+        from src.state import CursorStore, DownloadHistory
+
+        cfg = _dry_run_config(tmp_path)
+        cfg.session_dir.mkdir()
+        db_path = cfg.session_dir / "state.db"
+        store = CursorStore(str(db_path))
+        store.set("channel:-100111", 42)
+        history = DownloadHistory(str(db_path))
+        history.record("uid-1", "book.pdf", 2048, "channel:-100111", 10)
+        store.close()
+        history.close()
+        before = _finalize_sqlite(db_path)
+
+        captured = {}
+
+        async def spy_run_check(config, log, state_store, client, sources, hist, pending, limiter=None):
+            captured["cursor"] = state_store.get("channel:-100111")
+            captured["tracked"] = hist.contains("uid-1")
+            captured["missing"] = hist.contains("uid-missing")
+            return {
+                "sources_checked": 0,
+                "sources_failed": 0,
+                "files_downloaded": 0,
+                "files_skipped": 0,
+                "files_failed": 0,
+                "files_deferred_low_space": 0,
+                "low_disk_space": False,
+                "dry_run": True,
+                "bytes_downloaded": "0 B",
+                "duration": "0.0s",
+            }
+
+        _patch_main_io(monkeypatch, cfg, run_check=spy_run_check)
+        await main(config_path=str(tmp_path / "config.yaml"), state_yaml_path=tmp_path / "state.yaml")
+
+        assert captured["cursor"] == 42
+        assert captured["tracked"] is True
+        assert captured["missing"] is False
+        assert _finalize_sqlite(db_path) == before
+
+    def test_create_client_does_not_mkdir_session_dir_in_dry_run(self, tmp_path, monkeypatch):
+        from src.client.factory import create_client
+
+        monkeypatch.setattr("src.client.factory.Client", lambda **_kwargs: MagicMock())
+        cfg = _dry_run_config(tmp_path)
+        create_client(cfg)
+        assert not cfg.session_dir.exists()
+
+
+class TestDryRunPreviewAccuracy:
+    @pytest.mark.asyncio
+    async def test_second_source_skips_planned_unique_id(self, tmp_path, monkeypatch, caplog):
+        from src.main import run_check
+
+        msg_a = make_msg(10, file_name="book.pdf", file_size=2048, file_unique_id="same-id")
+        msg_b = make_msg(20, file_name="copy.pdf", file_size=2048, file_unique_id="same-id")
+        args, _, state_store, pending, download = make_run_args(tmp_path, [msg_a], monkeypatch)
+        history = MagicMock()
+        history.contains.return_value = False
+        source_b = YieldingSource("Other Channel", [msg_b])
+        source_b.chat_id = -100222
+        sources = [
+            args[4][0],
+            (
+                source_b,
+                build_filters(GlobalFilters(extensions=[".pdf", ".epub", ".mobi"])),
+                SourceConfig(url="https://t.me/other", name="Other Channel"),
+            ),
+        ]
+        args = (args[0], args[1], args[2], args[3], sources, history, pending)
+        with caplog.at_level(logging.INFO):
+            summary = await run_check(*args)
+
+        assert summary["files_downloaded"] == 1
+        assert summary["files_skipped"] == 1
+        assert "Would download:" in caplog.text
+        assert "book.pdf" in caplog.text
+        assert "Would skip (already tracked):" in caplog.text
+        assert "copy.pdf" in caplog.text
+        history.record.assert_not_called()
+        state_store.set.assert_not_called()
+        download.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_conflict_logs_suffixed_destination(self, tmp_path, monkeypatch, caplog):
+        msg = make_msg(10, file_name="book.pdf", file_size=4096, file_unique_id="new")
+        dest_dir = tmp_path / "Preview_Channel"
+        dest_dir.mkdir()
+        (dest_dir / "book.pdf").write_bytes(b"x" * 2048)
+        args, _, state_store, pending, download = make_run_args(tmp_path, [msg], monkeypatch)
+        with caplog.at_level(logging.INFO):
+            summary = await run_check(*args)
+
+        assert summary["files_downloaded"] == 1
+        assert "Would download:" in caplog.text
+        assert str(dest_dir / "book_2.pdf") in caplog.text
+        assert (dest_dir / "book_2.pdf").exists() is False
+        download.assert_not_awaited()
+        state_store.set.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_planned_same_name_same_size_is_duplicate(self, tmp_path, monkeypatch, caplog):
+        msgs = [
+            make_msg(10, file_name="book.pdf", file_size=2048, file_unique_id="a"),
+            make_msg(11, file_name="book.pdf", file_size=2048, file_unique_id="b"),
+        ]
+        args, _, state_store, pending, download = make_run_args(tmp_path, msgs, monkeypatch)
+        with caplog.at_level(logging.INFO):
+            summary = await run_check(*args)
+
+        assert summary["files_downloaded"] == 1
+        assert summary["files_skipped"] == 1
+        assert "Would skip (duplicate):" in caplog.text
+        download.assert_not_awaited()
+        state_store.set.assert_not_called()
+        pending.add_batch.assert_not_called()
+        assert not (tmp_path / "Preview_Channel").exists()
+
+    @pytest.mark.asyncio
+    async def test_planned_same_name_different_size_uses_suffix(self, tmp_path, monkeypatch, caplog):
+        msgs = [
+            make_msg(10, file_name="book.pdf", file_size=2048, file_unique_id="a"),
+            make_msg(11, file_name="book.pdf", file_size=4096, file_unique_id="b"),
+        ]
+        args, *_ = make_run_args(tmp_path, msgs, monkeypatch)
+        with caplog.at_level(logging.INFO):
+            summary = await run_check(*args)
+
+        assert summary["files_downloaded"] == 2
+        assert str(tmp_path / "Preview_Channel" / "book.pdf") in caplog.text
+        assert str(tmp_path / "Preview_Channel" / "book_2.pdf") in caplog.text
+        assert not (tmp_path / "Preview_Channel").exists()
