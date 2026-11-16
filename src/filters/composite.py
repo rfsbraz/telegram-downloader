@@ -58,6 +58,8 @@ class CompositeFilter(BaseFilter):
 
     async def rejection_reason(self, message: Message) -> str | None:
         """Return why this message would be skipped, or None if it matches."""
+        if is_photo_only(message) and not self.include_photos:
+            return "photos disabled"
         for f in self.filters:
             if not await f.matches(message):
                 return getattr(f, "skip_reason", "filter")
