@@ -103,6 +103,17 @@ All configuration is done via environment variables with the `TDL_` prefix. See 
 - TDL_GLOBAL_FILTERS_EXTENSIONS=.pdf,.epub
 ```
 
+### Dry run
+
+Preview what a run would download without writing anything:
+
+```yaml
+- TDL_DRY_RUN=true
+- TDL_DAEMON_ENABLED=false
+```
+
+Use this with a single-shot run to check filters first. Nothing is downloaded, and cursors, history, and the pending queue are left unchanged. If dry-run is left on in daemon mode, every check logs a warning.
+
 ### Daemon Mode
 
 ```yaml
