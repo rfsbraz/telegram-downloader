@@ -18,6 +18,7 @@ async def build_destination_path(
     filename: str,
     source_config: SourceConfig,
     flat_structure: bool = False,
+    create_dirs: bool = True,
 ) -> Path:
     """
     Build destination path with optional per-source folder structure.
@@ -43,6 +44,7 @@ async def build_destination_path(
         filename: Original filename from Telegram message
         source_config: Source configuration with optional name override
         flat_structure: If True, store files directly in base_dir without subfolders
+        create_dirs: If False, return the path without creating folders
 
     Returns:
         Validated absolute path ready for download
@@ -99,7 +101,8 @@ async def build_destination_path(
     # Validate path safety (defense in depth)
     validated_path = validate_path_safety(base_dir, dest_path)
 
-    # Create folder if it doesn't exist (idempotent)
-    validated_path.parent.mkdir(parents=True, exist_ok=True)
+    # Create folder if it doesn't exist (idempotent). Dry-run skips this.
+    if create_dirs:
+        validated_path.parent.mkdir(parents=True, exist_ok=True)
 
     return validated_path

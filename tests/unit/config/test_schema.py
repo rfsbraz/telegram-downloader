@@ -137,6 +137,25 @@ class TestConfig:
             Config.model_validate(minimal_config_dict)
 
 
+
+    def test_default_dry_run_is_false(self):
+        """Dry-run should be off by default."""
+        config = Config.model_validate({
+            "api_id": 12345,
+            "api_hash": "abc123def456789012345678901234ab",
+        })
+        assert config.dry_run is False
+
+    def test_dry_run_can_be_enabled(self):
+        """dry_run should accept an explicit true value."""
+        config = Config.model_validate({
+            "api_id": 12345,
+            "api_hash": "abc123def456789012345678901234ab",
+            "dry_run": True,
+        })
+        assert config.dry_run is True
+
+
 class TestSourceConfig:
     """Tests for SourceConfig schema."""
 

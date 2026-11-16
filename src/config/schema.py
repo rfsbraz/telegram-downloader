@@ -140,6 +140,9 @@ class Config(BaseModel):
     # Logging
     verbosity: Literal["quiet", "normal", "verbose"] = Field(default="normal")
 
+    # Preview filters and destinations without downloading or writing state
+    dry_run: bool = Field(default=False)
+
     # Multi-source configuration
     sources: list[SourceConfig] = Field(default_factory=list)
     global_filters: GlobalFilters = Field(default_factory=GlobalFilters)

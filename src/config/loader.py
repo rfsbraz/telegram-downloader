@@ -48,6 +48,7 @@ BOOL_FIELDS = {
     "allow_archives",
     "test_mode",
     "track_downloads",
+    "dry_run",
 }
 
 # Full field names that should be parsed as integers
@@ -94,6 +95,7 @@ FLAT_FIELDS = {
     "allow_archives",
     "archive_exts",
     "track_downloads",
+    "dry_run",
     "post_download_hook",
     "post_download_hook_timeout",
 }

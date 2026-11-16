@@ -37,6 +37,8 @@ class ExtensionFilter(BaseFilter):
     All extension matching is case-insensitive for user convenience.
     """
 
+    skip_reason = "extension"
+
     def __init__(
         self,
         ebook_exts: list[str],

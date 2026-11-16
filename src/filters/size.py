@@ -20,6 +20,8 @@ class SizeFilter(BaseFilter):
     All size comparisons are in bytes (Pyrogram's native unit).
     """
 
+    skip_reason = "size"
+
     def __init__(self, min_bytes: int | None = None, max_bytes: int | None = None):
         """
         Initialize size filter.
