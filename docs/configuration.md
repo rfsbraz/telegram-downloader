@@ -244,6 +244,7 @@ Per-source filters override global defaults. A per-source value replaces the glo
 | `TDL_SOURCES_N_FILTERS_ONLY_BEFORE` | date | - | Newest message date to download, inclusive |
 | `TDL_SOURCES_N_FILTERS_INCLUDE_PATTERNS` | list | - | Only download files whose name matches one of these |
 | `TDL_SOURCES_N_FILTERS_EXCLUDE_PATTERNS` | list | - | Skip files whose name matches one of these (checked first) |
+| `TDL_SOURCES_N_FILTERS_INCLUDE_PHOTOS` | boolean | global value | Also download compressed Telegram photos |
 
 === "Environment Variables"
 
@@ -273,6 +274,8 @@ List settings take comma-separated values in environment variables, e.g. `TDL_SO
 **Date format:** `YYYY-MM-DD` or `YYYY-MM-DDTHH:MM:SS`, read as UTC. A date alone means midnight at the start of that day, so `ONLY_BEFORE=2026-01-31` stops at the start of 31 January; use `2026-01-31T23:59:59` to include the whole day.
 **Pattern format:** Wildcards (`*` = any characters, `?` = single character), or a regex when the pattern starts with `^`, ends with `$`, or contains any of `( ) [ ] { } | +`. Patterns are matched against the file name.
 
+**Photos:** Telegram compressed photos are ignored by default, because photo-heavy chats can be huge. Set `TDL_GLOBAL_FILTERS_INCLUDE_PHOTOS=true` (or the per-source flag) to download them. The largest size is saved as `photo_<YYYY-MM-DD>_<message-id>.jpg`. Size, date and pattern filters still apply; the generated `.jpg` name is what the pattern and extension filters see. Photos are accepted when the flag is on even if `.jpg` is not in the extension list. When photos are left off and a source contains them, the skip count is logged at DEBUG.
+
 ## Global Filter Defaults
 
 Applied to all sources unless overridden.
@@ -288,6 +291,7 @@ Applied to all sources unless overridden.
 | `TDL_GLOBAL_FILTERS_EXCLUDE_PATTERNS` | list | - | Default exclude patterns |
 | `TDL_GLOBAL_FILTERS_ONLY_AFTER` | date | - | Default oldest message date |
 | `TDL_GLOBAL_FILTERS_ONLY_BEFORE` | date | - | Default newest message date |
+| `TDL_GLOBAL_FILTERS_INCLUDE_PHOTOS` | boolean | `false` | Also download compressed Telegram photos |
 
 ## Retry Configuration
 
