@@ -9,7 +9,7 @@ import re
 from urllib.parse import urlparse
 
 
-def parse_telegram_url(url: str) -> tuple[str, int | None]:
+def parse_telegram_url(url: str) -> tuple[str | int, int | None]:
     """
     Parse Telegram URL to extract chat identifier and topic ID.
 
@@ -25,7 +25,7 @@ def parse_telegram_url(url: str) -> tuple[str, int | None]:
 
     Returns:
         Tuple of (chat_identifier, topic_id):
-        - chat_identifier: Username (str) or numeric ID with -100 prefix (str)
+        - chat_identifier: Username (str) or numeric ID with -100 prefix (int)
         - topic_id: Forum topic ID (int) or None
 
     Raises:
@@ -36,10 +36,10 @@ def parse_telegram_url(url: str) -> tuple[str, int | None]:
         ('my_channel', None)
 
         >>> parse_telegram_url("https://t.me/c/123456789/5")
-        ('-100123456789', 5)
+        (-100123456789, 5)
 
         >>> parse_telegram_url("https://t.me/c/987654321")
-        ('-100987654321', None)
+        (-100987654321, None)
 
         >>> parse_telegram_url("invalid://bad.url")
         ValueError: Invalid Telegram URL: invalid://bad.url
@@ -81,7 +81,7 @@ def parse_telegram_url(url: str) -> tuple[str, int | None]:
             )
 
         # Add -100 prefix (required for channels/supergroups)
-        chat_id = f"-100{chat_id_num}"
+        chat_id = int(f"-100{chat_id_num}")
 
         # Extract topic ID if present
         topic_id = None

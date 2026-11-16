@@ -79,6 +79,25 @@ class TestParseSources:
         with pytest.raises(ConfigError, match="url or chat_id"):
             await parse_sources(config, client)
 
+    async def test_private_tme_c_url_reaches_get_chat_as_int(self):
+        """t.me/c/ IDs must reach get_chat as int, not str (issue #127)."""
+        config = make_config([
+            {"url": "https://t.me/c/123456789"},
+            {"url": "https://t.me/c/123456789/5"},
+        ])
+        client = MagicMock()
+        client.get_chat = AsyncMock(side_effect=[
+            make_chat(-100123456789),
+            make_chat(-100123456789),
+        ])
+
+        results = await parse_sources(config, client)
+
+        assert len(results) == 2
+        peers = [call.args[0] for call in client.get_chat.await_args_list]
+        assert peers == [-100123456789, -100123456789]
+        assert all(type(peer) is int for peer in peers)
+
 
 class TestValidateSourceAccess:
     """Tests for validate_source_access filtering behavior."""
