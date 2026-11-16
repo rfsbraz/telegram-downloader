@@ -16,6 +16,33 @@ class StateError(Exception):
     pass
 
 
+def open_sqlite(db_path: str, *, ephemeral: bool = False) -> sqlite3.Connection:
+    """Open a SQLite connection, optionally as an in-memory clone.
+
+    When ephemeral is true, the on-disk file is opened read-only (if it
+    exists) and copied into memory. The session directory, state.db, and
+    WAL files are never created or written.
+    """
+    if ephemeral:
+        conn = sqlite3.connect(":memory:")
+        path = Path(db_path)
+        if path.is_file():
+            src = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
+            try:
+                src.backup(conn)
+            finally:
+                src.close()
+    else:
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA journal_mode=WAL")
+
+    result = conn.execute("PRAGMA integrity_check").fetchone()
+    if result[0] != "ok":
+        raise StateError(f"Database integrity check failed: {result[0]}")
+    return conn
+
+
 class CursorStore:
     """SQLite-based state tracking with atomic operations and crash recovery.
 
@@ -27,31 +54,19 @@ class CursorStore:
     - YAML migration support for existing state files
     """
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, *, ephemeral: bool = False):
         """Initialize SQLite connection with WAL mode.
 
         Args:
             db_path: Path to SQLite database file
+            ephemeral: If true, use an in-memory clone and do not write the file
 
         Raises:
             StateError: If database is corrupted or initialization fails
         """
         self.db_path = db_path
         self._connection: Optional[sqlite3.Connection] = None
-
-        # Create parent directory if needed
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-
-        # Connect and initialize
-        self._connection = sqlite3.connect(db_path)
-
-        # Enable WAL mode for concurrent access
-        self._connection.execute("PRAGMA journal_mode=WAL")
-
-        # Check database integrity
-        result = self._connection.execute("PRAGMA integrity_check").fetchone()
-        if result[0] != "ok":
-            raise StateError(f"Database integrity check failed: {result[0]}")
+        self._connection = open_sqlite(db_path, ephemeral=ephemeral)
 
         # Create table if not exists
         self._connection.execute("""

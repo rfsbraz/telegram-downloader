@@ -43,17 +43,18 @@ def create_client(config: Config) -> Client:
     if not config.api_hash or not config.api_hash.strip():
         raise ValueError("api_hash must be a non-empty string")
 
-    # Ensure session directory exists with secure permissions
+    # Ensure session directory exists with secure permissions, except in
+    # dry-run, which must not create the session dir or its files.
     session_dir = Path(config.session_dir)
-    session_dir.mkdir(parents=True, exist_ok=True)
-
-    # Set directory permissions to 700 (owner-only: rwx------)
-    # This works on both Unix and Windows (Windows restricts to owner)
-    try:
-        os.chmod(session_dir, 0o700)
-    except (OSError, NotImplementedError):
-        # Windows may not support chmod, but directory ACLs still provide owner-only access
-        pass
+    if not getattr(config, "dry_run", False):
+        session_dir.mkdir(parents=True, exist_ok=True)
+        # Set directory permissions to 700 (owner-only: rwx------)
+        # This works on both Unix and Windows (Windows restricts to owner)
+        try:
+            os.chmod(session_dir, 0o700)
+        except (OSError, NotImplementedError):
+            # Windows may not support chmod, but directory ACLs still provide owner-only access
+            pass
 
     # Build client arguments
     client_kwargs = {

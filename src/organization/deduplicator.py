@@ -7,7 +7,25 @@ Implements ORG-03: Fast duplicate detection and automatic conflict handling.
 from pathlib import Path
 
 
-def is_duplicate(existing: Path, incoming_size: int) -> bool:
+def _occupied_size(existing: Path, overlay: dict[Path, int] | None) -> int | None:
+    """Return the size of an existing or reserved path, or None if absent."""
+    if overlay and existing in overlay:
+        return overlay[existing]
+    if existing.exists():
+        return existing.stat().st_size
+    return None
+
+
+def _is_taken(path: Path, overlay: dict[Path, int] | None) -> bool:
+    """True if the path exists on disk or is reserved in the overlay."""
+    return (overlay is not None and path in overlay) or path.exists()
+
+
+def is_duplicate(
+    existing: Path,
+    incoming_size: int,
+    overlay: dict[Path, int] | None = None,
+) -> bool:
     """
     Check if file is likely a duplicate using size comparison.
 
@@ -26,35 +44,22 @@ def is_duplicate(existing: Path, incoming_size: int) -> bool:
     Args:
         existing: Path to existing file on disk
         incoming_size: Size in bytes of incoming file to download
+        overlay: Optional planned destination sizes (dry-run memory)
 
     Returns:
         True if likely duplicate (same size), False otherwise
-
-    Example:
-        >>> existing = Path("/downloads/book.epub")
-        >>> is_duplicate(existing, 1024000)  # existing.stat().st_size == 1024000
-        True
-        >>> is_duplicate(existing, 2048000)  # different size
-        False
-        >>> is_duplicate(Path("/nonexistent"), 1024000)  # doesn't exist
-        False
     """
-    # File doesn't exist - definitely not duplicate
-    if not existing.exists():
+    existing_size = _occupied_size(existing, overlay)
+    if existing_size is None:
         return False
-
-    # Get existing file size
-    existing_size = existing.stat().st_size
-
-    # Compare sizes: different size = different file
-    if existing_size != incoming_size:
-        return False
-
-    # Same size = likely duplicate (conservative)
-    return True
+    return existing_size == incoming_size
 
 
-def resolve_conflict(dest: Path, max_attempts: int = 9999) -> Path:
+def resolve_conflict(
+    dest: Path,
+    max_attempts: int = 9999,
+    overlay: dict[Path, int] | None = None,
+) -> Path:
     """
     Resolve filename conflict using numeric auto-increment.
 
@@ -70,38 +75,26 @@ def resolve_conflict(dest: Path, max_attempts: int = 9999) -> Path:
     Args:
         dest: Desired destination path
         max_attempts: Maximum number of increments to try (default: 9999)
+        overlay: Optional planned destinations that also count as taken
 
     Returns:
         Available path (original or with numeric suffix)
 
     Raises:
         RuntimeError: If max_attempts exhausted without finding available name
-
-    Example:
-        >>> dest = Path("/downloads/book.epub")
-        >>> resolve_conflict(dest)  # book.epub doesn't exist
-        Path('/downloads/book.epub')
-        >>> resolve_conflict(dest)  # book.epub exists, book_2.epub available
-        Path('/downloads/book_2.epub')
-        >>> resolve_conflict(dest)  # book.epub and book_2.epub exist
-        Path('/downloads/book_3.epub')
     """
-    # No conflict if file doesn't exist
-    if not dest.exists():
+    if not _is_taken(dest, overlay):
         return dest
 
-    # Extract stem and suffix for numeric increment
     stem = dest.stem
     suffix = dest.suffix
     parent = dest.parent
 
-    # Try numeric increments until available name found
     for i in range(2, max_attempts + 2):
         candidate = parent / f"{stem}_{i}{suffix}"
-        if not candidate.exists():
+        if not _is_taken(candidate, overlay):
             return candidate
 
-    # Exhausted all attempts - prevent infinite loop
     raise RuntimeError(
         f"Could not resolve filename conflict for {dest} after {max_attempts} attempts"
     )

@@ -127,6 +127,8 @@ async def dry_run_source(
     history,
     log,
     display_name: str,
+    planned_ids: set[str] | None = None,
+    planned_paths: dict[Path, int] | None = None,
 ) -> dict:
     """Evaluate filters and destinations for one source without writing anything."""
     stats = {
@@ -138,6 +140,8 @@ async def dry_run_source(
         "deferred_low_space": 0,
         "bytes_downloaded": 0,
     }
+    planned_ids = planned_ids if planned_ids is not None else set()
+    planned_paths = planned_paths if planned_paths is not None else {}
     async for msg in source.iterate_new_media(last_seen_id):
         _media, fname, size, unique = _media_info(msg)
         if hasattr(composite_filter, "rejection_reason"):
@@ -153,7 +157,9 @@ async def dry_run_source(
             stats["skipped_filter"] += 1
             continue
 
-        if history and unique and history.contains(unique):
+        if unique and (
+            (history and history.contains(unique)) or unique in planned_ids
+        ):
             log.info(
                 f"Would skip (already tracked): {fname} ({format_bytes(size)}) "
                 f"from {display_name}"
@@ -175,19 +181,29 @@ async def dry_run_source(
             stats["skipped_error"] += 1
             continue
 
-        if dest.exists() and is_duplicate(dest, size):
-            log.info(
-                f"Would skip (duplicate): {dest.name} ({format_bytes(size)}) "
-                f"from {display_name}"
-            )
-            stats["skipped_duplicate"] += 1
-            continue
+        if dest.exists() or dest in planned_paths:
+            if is_duplicate(dest, size, overlay=planned_paths):
+                log.info(
+                    f"Would skip (duplicate): {dest.name} ({format_bytes(size)}) "
+                    f"from {display_name}"
+                )
+                stats["skipped_duplicate"] += 1
+                continue
+            try:
+                dest = resolve_conflict(dest, overlay=planned_paths)
+            except RuntimeError as e:
+                log.info(f"Would skip (path error): {fname} from {display_name}: {e}")
+                stats["skipped_error"] += 1
+                continue
 
         log.info(
             f"Would download: {fname} ({format_bytes(size)}) from {display_name} -> {dest}"
         )
         stats["downloaded"] += 1
         stats["bytes_downloaded"] += size
+        planned_paths[dest] = size
+        if unique:
+            planned_ids.add(unique)
     return stats
 
 
@@ -519,6 +535,11 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
     # Create global concurrency control
     semaphore = asyncio.Semaphore(cfg.max_concurrent_downloads)
 
+    # Shared across sources so the preview matches a real run's history
+    # records and destination reservations without writing them.
+    planned_ids: set[str] = set()
+    planned_paths: dict[Path, int] = {}
+
     # Iterate sources sequentially (config order = priority)
     for source, composite_filter, source_config in sources_with_filters:
         cursor_key = source.get_cursor_key()
@@ -545,6 +566,8 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
                     history,
                     log,
                     display_name,
+                    planned_ids=planned_ids,
+                    planned_paths=planned_paths,
                 )
                 for key in totals:
                     totals[key] += batch_stats.get(key, 0)
@@ -798,9 +821,12 @@ async def wait_for_shutdown() -> None:
     await stop.wait()
 
 
-async def main():
+async def main(
+    config_path: str = "/app/config.yaml",
+    state_yaml_path: str | Path = "/app/state.yaml",
+):
     """Main entry point - daemon or run-once based on config."""
-    cfg = load_config("/app/config.yaml")
+    cfg = load_config(config_path)
     log = setup_logging(cfg.log_file, cfg.verbosity)
 
     # Override log level from daemon config if specified
@@ -808,21 +834,24 @@ async def main():
         log.setLevel(getattr(logging, cfg.daemon.log_level.upper()))
     warn_ignored_settings(cfg, log)
 
-    # Initialize state store (in sessions dir so it persists via volume mount)
+    # Initialize state store (in sessions dir so it persists via volume mount).
+    # Dry-run uses in-memory clones so the session dir, state.db, WAL, and
+    # state.yaml are never created or rewritten.
+    dry_run = cfg.dry_run is True
     state_db_path = cfg.session_dir / "state.db"
-    state_store = CursorStore(str(state_db_path))
-    if Path("/app/state.yaml").exists():
+    state_store = CursorStore(str(state_db_path), ephemeral=dry_run)
+    if not dry_run and Path(state_yaml_path).exists():
         log.info("Migrating state from YAML to SQLite...")
-        state_store.migrate_from_yaml("/app/state.yaml")
+        state_store.migrate_from_yaml(str(state_yaml_path))
 
     # Initialize download history for persistent deduplication
     history = None
     if cfg.track_downloads:
-        history = DownloadHistory(str(state_db_path))
+        history = DownloadHistory(str(state_db_path), ephemeral=dry_run)
         log.info("Download history tracking enabled")
 
     # Initialize pending downloads queue
-    pending = PendingDownloads(str(state_db_path))
+    pending = PendingDownloads(str(state_db_path), ephemeral=dry_run)
     log.info("Pending downloads queue initialized")
 
     # Log credentials for debugging (mask sensitive parts)

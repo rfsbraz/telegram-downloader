@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from .cursor import StateError
+from .cursor import StateError, open_sqlite
 
 
 class DownloadHistory:
@@ -23,31 +23,19 @@ class DownloadHistory:
     - Integrity checking on initialization
     """
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, *, ephemeral: bool = False):
         """Initialize SQLite connection with WAL mode.
 
         Args:
             db_path: Path to SQLite database file
+            ephemeral: If true, use an in-memory clone and do not write the file
 
         Raises:
             StateError: If database is corrupted or initialization fails
         """
         self.db_path = db_path
         self._connection: Optional[sqlite3.Connection] = None
-
-        # Create parent directory if needed
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-
-        # Connect and initialize
-        self._connection = sqlite3.connect(db_path)
-
-        # Enable WAL mode for concurrent access
-        self._connection.execute("PRAGMA journal_mode=WAL")
-
-        # Check database integrity
-        result = self._connection.execute("PRAGMA integrity_check").fetchone()
-        if result[0] != "ok":
-            raise StateError(f"Database integrity check failed: {result[0]}")
+        self._connection = open_sqlite(db_path, ephemeral=ephemeral)
 
         # Create table if not exists
         self._connection.execute("""
