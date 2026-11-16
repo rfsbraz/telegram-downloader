@@ -161,8 +161,8 @@ def build_filters(filter_config: GlobalFilters) -> CompositeFilter:
     if filter_config.include_patterns or filter_config.exclude_patterns:
         filters.append(
             PatternFilter(
-                include_patterns=filter_config.include_patterns,
-                exclude_patterns=filter_config.exclude_patterns,
+                include=filter_config.include_patterns,
+                exclude=filter_config.exclude_patterns,
             )
         )
 
