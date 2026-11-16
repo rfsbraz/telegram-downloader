@@ -7,6 +7,7 @@ tiny files (samples, covers) or huge files (audiobooks, videos).
 
 from pyrogram.types import Message
 from src.filters.base import BaseFilter
+from src.media import get_media
 
 
 class SizeFilter(BaseFilter):
@@ -41,15 +42,7 @@ class SizeFilter(BaseFilter):
         Returns:
             True if message has media within configured size range
         """
-        # Get media object (same types as ExtensionFilter)
-        media_obj = (
-            message.document or
-            message.audio or
-            message.video or
-            message.animation or
-            message.voice or
-            message.video_note
-        )
+        media_obj = get_media(message, include_photos=True)
 
         if not media_obj:
             return False

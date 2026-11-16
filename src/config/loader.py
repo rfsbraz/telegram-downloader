@@ -48,6 +48,7 @@ BOOL_FIELDS = {
     "allow_archives",
     "test_mode",
     "track_downloads",
+    "include_photos",
 }
 
 # Full field names that should be parsed as integers
@@ -120,21 +121,21 @@ NESTED_MAPPINGS = {
     "global_filters_exclude_patterns": ("global_filters", "exclude_patterns"),
     "global_filters_only_after": ("global_filters", "only_after"),
     "global_filters_only_before": ("global_filters", "only_before"),
+    "global_filters_include_photos": ("global_filters", "include_photos"),
 }
 
 
 def _parse_value(key: str, value: str) -> Any:
     """Parse string value to appropriate type based on field name."""
-    # Get the last part of the key for simple field matching
-    field_name = key.split("_")[-1].lower()
-
     # Check if it's a list field. Match the whole field name at the end of
     # the key, since list fields like include_patterns contain underscores.
     if any(key == f or key.endswith("_" + f) for f in LIST_FIELDS):
         return [v.strip() for v in value.split(",") if v.strip()]
 
-    # Check if it's a boolean field
-    if field_name in BOOL_FIELDS or key in BOOL_FIELDS:
+    # Check if it's a boolean field. Match the whole field name at the end of
+    # the key, since fields like include_photos and allow_archives contain
+    # underscores. The last token alone ("photos", "archives") is not enough.
+    if any(key == f or key.endswith("_" + f) for f in BOOL_FIELDS):
         return value.lower() in ("true", "1", "yes", "on")
 
     # Check if it's an integer field (full match or suffix match)

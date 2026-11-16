@@ -31,6 +31,7 @@ from src.config.schema import SourceConfig
 from src.config.source_parser import parse_sources, validate_source_access
 from src.organization import build_destination_path, is_duplicate, resolve_conflict
 from src.sources.base import BaseSource
+from src.media import collect_matching_ids, get_media, media_filename
 from src.state import CursorStore, DownloadHistory, PendingDownloads
 from src.client import create_client, diskspace, download_media_with_retry
 from src.client.downloader import DiskFullError
@@ -166,15 +167,8 @@ async def download_batch(
 
         async with semaphore:  # Acquire semaphore slot
             # Extract media and filename
-            media = (
-                msg.document or
-                msg.audio or
-                msg.video or
-                msg.animation or
-                msg.voice or
-                msg.video_note
-            )
-            fname = getattr(media, "file_name", None) or f"message_{msg.id}"
+            media = get_media(msg, include_photos=True)
+            fname = media_filename(msg, media) if media else f"message_{msg.id}"
             media_size = getattr(media, "file_size", 0)
 
             # Check download history for persistent deduplication
@@ -442,19 +436,17 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
             if pending and pending.has_pending(cursor_key):
                 # Resume mode: scan only for NEW messages above the pending range
                 scan_above = pending.get_max_message_id(cursor_key)
-                new_ids = []
-                async for msg in source.iterate_new_media(scan_above):
-                    if await composite_filter.matches(msg):
-                        new_ids.append(msg.id)
+                new_ids = await collect_matching_ids(
+                    source, scan_above, composite_filter, log
+                )
                 if new_ids:
                     pending.add_batch(cursor_key, new_ids)
                     log.info(f"Added {len(new_ids)} new message(s) to pending queue")
             else:
                 # Fresh scan: stream matching IDs into pending (no Message accumulation)
-                scanned_ids = []
-                async for msg in source.iterate_new_media(last_seen_id):
-                    if await composite_filter.matches(msg):
-                        scanned_ids.append(msg.id)
+                scanned_ids = await collect_matching_ids(
+                    source, last_seen_id, composite_filter, log
+                )
 
                 if not scanned_ids:
                     log.info("No new matching documents.")

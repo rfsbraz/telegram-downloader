@@ -80,6 +80,7 @@ class GlobalFilters(BaseModel):
     only_before: Optional[datetime] = None
     include_patterns: list[str] = Field(default_factory=list)
     exclude_patterns: list[str] = Field(default_factory=list)
+    include_photos: bool = Field(default=False)
 
 
 class SourceConfig(BaseModel):
