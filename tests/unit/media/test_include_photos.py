@@ -91,6 +91,20 @@ class TestPhotoHelpers:
     def test_photo_filename_uses_message_date_and_id(self):
         assert photo_filename(photo_msg()) == PHOTO_NAME
 
+    def test_photo_filename_differs_for_distinct_photos_with_the_same_message_id(self):
+        one = photo_msg(msg_id=10, file_unique_id="unique-a")
+        two = photo_msg(msg_id=10, file_unique_id="unique-b")
+        assert photo_filename(one) != photo_filename(two)
+
+    def test_photo_filename_uses_chat_and_message_id_when_unique_id_is_missing(self):
+        one = photo_msg(msg_id=10, photo=MockPhoto(file_unique_id=None))
+        one.chat = SimpleNamespace(id=-1001)
+        two = photo_msg(msg_id=10, photo=MockPhoto(file_unique_id=None))
+        two.chat = SimpleNamespace(id=-1002)
+        assert photo_filename(one) != photo_filename(two)
+        assert photo_filename(one) == "photo_2026-07-05_-1001_10.jpg"
+        assert photo_filename(two) == "photo_2026-07-05_-1002_10.jpg"
+
     def test_media_filename_generates_jpg_for_photos(self):
         msg = photo_msg()
         assert media_filename(msg, msg.photo) == PHOTO_NAME
@@ -318,6 +332,61 @@ class TestDownloadBatchPhotos:
         history.record.assert_not_called()
         assert stats["skipped_tracked"] == 1
         assert failed == set()
+
+    @pytest.mark.asyncio
+    async def test_same_message_id_in_another_chat_is_not_treated_as_duplicate(
+        self, tmp_path, monkeypatch
+    ):
+        from src import main as main_module
+        from src.main import download_batch
+
+        async def fake_dest(download_dir, source, fname, source_config, flat):
+            return download_dir / fname
+
+        monkeypatch.setattr(main_module, "build_destination_path", fake_dest)
+        retry = AsyncMock(return_value=True)
+        monkeypatch.setattr(main_module, "download_media_with_retry", retry)
+
+        cfg = MagicMock()
+        cfg.min_free_space = ""
+        cfg.flat_structure = True
+        cfg.post_download_hook = None
+        cfg.max_retries = 2
+        cfg.base_delay = 0
+        cfg.max_delay = 0
+
+        first = photo_msg(msg_id=10, file_unique_id="photo-a", file_size=80000)
+        second = photo_msg(msg_id=10, file_unique_id="photo-b", file_size=80000)
+        existing = tmp_path / photo_filename(first)
+        existing.write_bytes(b"x" * 80000)
+
+        history = MagicMock()
+        history.contains.return_value = False
+        stats, failed, deferred = await download_batch(
+            [second],
+            asyncio.Semaphore(1),
+            MagicMock(),
+            tmp_path,
+            MagicMock(),
+            "channel:-100222",
+            cfg,
+            logging.getLogger("test-photo-collision"),
+            MagicMock(),
+            MagicMock(),
+            history,
+            include_photos=True,
+        )
+
+        assert stats["skipped_duplicate"] == 0
+        assert stats["downloaded"] == 1
+        assert failed == set()
+        assert deferred == set()
+        retry.assert_awaited_once()
+        dest = retry.await_args.args[2]
+        assert dest.name == photo_filename(second)
+        assert dest != existing
+        history.record.assert_called_once()
+        assert history.record.call_args.args[0] == "photo-b"
 
 
 class TestBuildFiltersWithSizeAndPattern:
