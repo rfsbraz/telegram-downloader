@@ -563,6 +563,50 @@ class TestDryRunPreviewAccuracyFollowup:
         download.assert_not_awaited()
         history.record.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_rejected_messages_are_not_retained_during_scan(self, tmp_path, caplog):
+        import gc
+        import weakref
+        from src.main import dry_run_source
+
+        retained_after_yield = []
+
+        class ScanningSource(YieldingSource):
+            async def iterate_new_media(self, last_seen_id):
+                for msg_id, name in ((30, "skip.txt"), (20, "notes.txt"), (10, "book.pdf")):
+                    msg = make_msg(msg_id, file_name=name, file_unique_id=f"id-{msg_id}")
+                    ref = weakref.ref(msg)
+                    yield msg
+                    del msg
+                    gc.collect()
+                    retained_after_yield.append((name, ref() is not None))
+
+        source = ScanningSource("Preview Channel", [])
+        filt = build_filters(GlobalFilters(extensions=[".pdf", ".epub", ".mobi"]))
+        history = MagicMock()
+        history.contains.return_value = False
+        with caplog.at_level(logging.INFO):
+            stats = await dry_run_source(
+                source,
+                filt,
+                SourceConfig(url="https://t.me/preview", name="Preview Channel"),
+                0,
+                tmp_path,
+                False,
+                history,
+                logging.getLogger("test-dry-run-retain"),
+                "Preview Channel",
+            )
+        assert stats["skipped_filter"] == 2
+        assert stats["downloaded"] == 1
+        assert retained_after_yield == [
+            ("skip.txt", False),
+            ("notes.txt", False),
+            ("book.pdf", False),
+        ]
+        assert "Would skip" in caplog.text
+        assert "Would download: book.pdf" in caplog.text
+
 
 class TestMainDryRunWalAndSession:
     @pytest.mark.asyncio
@@ -589,6 +633,32 @@ class TestMainDryRunWalAndSession:
         ephemeral.close()
         for path, snap in before.items():
             assert fingerprint(path) == snap, path
+        store.close()
+
+    def test_ephemeral_open_survives_checkpoint_during_copy(self, tmp_path, monkeypatch):
+        import shutil
+        from src.state import CursorStore
+        from src.state import cursor as cursor_mod
+
+        db_path = tmp_path / "state.db"
+        store = CursorStore(str(db_path))
+        store.set("channel:-100111", 42)
+        # Leave the writer open so the commit still lives in the WAL.
+
+        real_copy = cursor_mod.shutil.copyfile
+        tripped = {"done": False}
+
+        def flaky_copy(src, dst, *args, **kwargs):
+            result = real_copy(src, dst, *args, **kwargs)
+            if Path(src) == db_path and not tripped["done"]:
+                tripped["done"] = True
+                store._connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            return result
+
+        monkeypatch.setattr(cursor_mod.shutil, "copyfile", flaky_copy)
+        ephemeral = CursorStore(str(db_path), ephemeral=True)
+        assert ephemeral.get("channel:-100111") == 42
+        ephemeral.close()
         store.close()
 
     @pytest.mark.asyncio
