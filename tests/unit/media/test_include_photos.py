@@ -316,3 +316,132 @@ class TestDownloadBatchPhotos:
         history.record.assert_not_called()
         assert stats["skipped_tracked"] == 1
         assert failed == set()
+
+
+class TestBuildFiltersWithSizeAndPattern:
+    @pytest.mark.asyncio
+    async def test_size_limits_apply_to_photos_through_build_filters(self):
+        accepted = build_filters(
+            GlobalFilters(include_photos=True, min_size="10KB", max_size="200KB")
+        )
+        too_small = build_filters(GlobalFilters(include_photos=True, min_size="100KB"))
+        msg = photo_msg()  # default 80KB
+        assert await accepted.matches(msg) is True
+        assert await too_small.matches(msg) is False
+
+    @pytest.mark.asyncio
+    async def test_patterns_apply_to_generated_photo_names_through_build_filters(self):
+        accepted = build_filters(
+            GlobalFilters(include_photos=True, include_patterns=["photo_*.jpg"])
+        )
+        rejected = build_filters(
+            GlobalFilters(include_photos=True, include_patterns=["*.pdf"])
+        )
+        msg = photo_msg()
+        assert await accepted.matches(msg) is True
+        assert await rejected.matches(msg) is False
+        assert await accepted.matches(document_msg()) is False
+
+
+class TestPendingPhotosHonourIncludeFlag:
+    @pytest.mark.asyncio
+    async def test_download_batch_skips_photos_when_include_photos_is_off(
+        self, tmp_path, monkeypatch
+    ):
+        from src import main as main_module
+        from src.main import download_batch
+
+        retry = AsyncMock(return_value=True)
+        monkeypatch.setattr(main_module, "download_media_with_retry", retry)
+
+        cfg = MagicMock()
+        cfg.min_free_space = ""
+        cfg.flat_structure = True
+        cfg.post_download_hook = None
+
+        history = MagicMock()
+        history.contains.return_value = False
+        cursor = MagicMock()
+        msg = photo_msg(msg_id=30, file_unique_id="queued-photo")
+
+        stats, failed, deferred = await download_batch(
+            [msg],
+            asyncio.Semaphore(1),
+            MagicMock(),
+            tmp_path,
+            cursor,
+            "channel:-100111",
+            cfg,
+            logging.getLogger("test-photo-pending-off"),
+            MagicMock(),
+            MagicMock(),
+            history,
+            include_photos=False,
+        )
+
+        retry.assert_not_awaited()
+        history.record.assert_not_called()
+        assert stats["downloaded"] == 0
+        assert failed == set()
+        assert deferred == set()
+        cursor.set.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_run_check_removes_pending_photos_when_flag_is_off(
+        self, tmp_path, monkeypatch
+    ):
+        from src.config.schema import SourceConfig
+        from src.main import run_check
+        from src.sources.channel import ChannelSource
+
+        msg = photo_msg(msg_id=30, file_unique_id="queued-photo")
+        retry = AsyncMock(return_value=True)
+        monkeypatch.setattr("src.main.download_media_with_retry", retry)
+
+        cfg = MagicMock()
+        cfg.max_concurrent_downloads = 1
+        cfg.max_downloads_per_run = 0
+        cfg.min_free_space = ""
+        cfg.flat_structure = True
+        cfg.download_dir = tmp_path
+        cfg.post_download_hook = None
+        cfg.max_download_attempts = 5
+
+        client = MagicMock()
+        client.get_messages = AsyncMock(return_value=[msg])
+        source = ChannelSource(client, -100111)
+        filt = build_filters(GlobalFilters(include_photos=False))
+        source_config = SourceConfig(url="https://t.me/preview", name="Preview Channel")
+
+        state_store = MagicMock()
+        state_store.get.return_value = 40
+        pending = MagicMock()
+        pending.has_pending.return_value = True
+        pending.get_max_message_id.return_value = 40
+        pending.get_oldest.side_effect = [[30], []]
+        pending.count.return_value = 0
+        pending.count_exhausted.return_value = 0
+
+        history = MagicMock()
+        history.contains.return_value = False
+
+        log = logging.getLogger("test-pending-photos-off")
+        summary = await run_check(
+            cfg,
+            log,
+            state_store,
+            client,
+            [(source, filt, source_config)],
+            history,
+            pending,
+        )
+
+        retry.assert_not_awaited()
+        history.record.assert_not_called()
+        pending.remove_batch.assert_called()
+        removed = []
+        for call in pending.remove_batch.call_args_list:
+            removed.extend(call.args[1])
+        assert 30 in removed
+        pending.increment_attempts.assert_not_called()
+        assert summary["files_downloaded"] == 0
