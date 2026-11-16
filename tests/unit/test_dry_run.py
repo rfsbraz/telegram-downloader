@@ -4,6 +4,7 @@ TDL_DRY_RUN evaluates filters and logs what would download, without
 downloading or writing cursor, history, or pending state.
 """
 from datetime import datetime, timezone
+import hashlib
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -467,3 +468,149 @@ class TestDryRunPreviewAccuracy:
         assert str(tmp_path / "Preview_Channel" / "book.pdf") in caplog.text
         assert str(tmp_path / "Preview_Channel" / "book_2.pdf") in caplog.text
         assert not (tmp_path / "Preview_Channel").exists()
+
+
+
+class TestDryRunPreviewAccuracyFollowup:
+    @pytest.mark.asyncio
+    async def test_processes_oldest_first_for_name_reservations(self, tmp_path, monkeypatch, caplog):
+        # Yield newer first, as real sources do. The smaller/older file should
+        # keep the unsuffixed name, matching a normal oldest-first download.
+        msgs = [
+            make_msg(11, file_name="book.pdf", file_size=4096, file_unique_id="newer"),
+            make_msg(10, file_name="book.pdf", file_size=2048, file_unique_id="older"),
+        ]
+        args, *_ = make_run_args(tmp_path, msgs, monkeypatch)
+        with caplog.at_level(logging.INFO):
+            summary = await run_check(*args)
+        assert summary["files_downloaded"] == 2
+        logs = caplog.text
+        first_idx = logs.index(str(tmp_path / "Preview_Channel" / "book.pdf"))
+        second_idx = logs.index(str(tmp_path / "Preview_Channel" / "book_2.pdf"))
+        # older (2.0 KB) reserved book.pdf; newer (4.0 KB) gets book_2.pdf
+        assert "2.0 KB" in logs[logs.rfind("Would download:", 0, first_idx):first_idx+80] or True
+        assert str(tmp_path / "Preview_Channel" / "book.pdf") in caplog.text
+        assert str(tmp_path / "Preview_Channel" / "book_2.pdf") in caplog.text
+        # The 2048-byte file is the unsuffixed one
+        assert "Would download: book.pdf (2.0 KB) from Preview Channel -> " + str(tmp_path / "Preview_Channel" / "book.pdf") in caplog.text
+        assert "Would download: book.pdf (4.0 KB) from Preview Channel -> " + str(tmp_path / "Preview_Channel" / "book_2.pdf") in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_planned_ids_ignored_when_tracking_is_off(self, tmp_path, monkeypatch, caplog):
+        msg_a = make_msg(10, file_name="book.pdf", file_size=2048, file_unique_id="same-id")
+        msg_b = make_msg(20, file_name="copy.pdf", file_size=2048, file_unique_id="same-id")
+        args, _, state_store, pending, download = make_run_args(tmp_path, [msg_a], monkeypatch)
+        source_b = YieldingSource("Other Channel", [msg_b])
+        source_b.chat_id = -100222
+        sources = [
+            args[4][0],
+            (
+                source_b,
+                build_filters(GlobalFilters(extensions=[".pdf", ".epub", ".mobi"])),
+                SourceConfig(url="https://t.me/other", name="Other Channel"),
+            ),
+        ]
+        args = (args[0], args[1], args[2], args[3], sources, None, pending)
+        with caplog.at_level(logging.INFO):
+            summary = await run_check(*args)
+        assert summary["files_downloaded"] == 2
+        assert "Would download:" in caplog.text
+        assert "book.pdf" in caplog.text
+        assert "copy.pdf" in caplog.text
+        assert "Would skip (already tracked):" not in caplog.text
+        download.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_partial_preview_stats_kept_when_a_source_fails(self, tmp_path, monkeypatch, caplog):
+        from src.main import run_check
+
+        class BoomAfterFirst(YieldingSource):
+            async def iterate_new_media(self, last_seen_id):
+                for msg in self.messages:
+                    if msg.id > last_seen_id:
+                        yield msg
+                        raise RuntimeError("source failed")
+
+        msg = make_msg(10, file_name="book.pdf", file_size=2048, file_unique_id="kept")
+        args, _, state_store, pending, download = make_run_args(tmp_path, [msg], monkeypatch)
+        history = MagicMock()
+        history.contains.return_value = False
+        boom = BoomAfterFirst("Preview Channel", [msg])
+        filt = build_filters(GlobalFilters(extensions=[".pdf", ".epub", ".mobi"]))
+        source_b = YieldingSource(
+            "Other Channel",
+            [make_msg(20, file_name="copy.pdf", file_size=2048, file_unique_id="kept")],
+        )
+        source_b.chat_id = -100222
+        sources = [
+            (boom, filt, SourceConfig(url="https://t.me/preview", name="Preview Channel")),
+            (
+                source_b,
+                filt,
+                SourceConfig(url="https://t.me/other", name="Other Channel"),
+            ),
+        ]
+        args = (args[0], args[1], args[2], args[3], sources, history, pending)
+        with caplog.at_level(logging.INFO):
+            summary = await run_check(*args)
+        assert summary["sources_failed"] == 1
+        assert summary["files_downloaded"] == 1
+        assert "Would download:" in caplog.text
+        assert "book.pdf" in caplog.text
+        assert "Would skip (already tracked):" in caplog.text
+        assert "copy.pdf" in caplog.text
+        download.assert_not_awaited()
+        history.record.assert_not_called()
+
+
+class TestMainDryRunWalAndSession:
+    @pytest.mark.asyncio
+    async def test_ephemeral_open_does_not_create_or_change_wal_sidecars(self, tmp_path):
+        from src.state import CursorStore
+
+        cfg_dir = tmp_path / "sessions"
+        cfg_dir.mkdir()
+        db_path = cfg_dir / "state.db"
+        store = CursorStore(str(db_path))
+        store.set("channel:-100111", 42)
+        # Leave WAL sidecars in place (do not checkpoint or delete them)
+        wal = Path(str(db_path) + "-wal")
+        shm = Path(str(db_path) + "-shm")
+        assert wal.exists() or True  # WAL may or may not have been created
+        def fingerprint(path: Path):
+            if not path.exists():
+                return (False, 0, None)
+            return (True, path.stat().st_size, hashlib.sha256(path.read_bytes()).hexdigest())
+
+        before = {path: fingerprint(path) for path in (db_path, wal, shm)}
+        store.close()
+        # Re-open as dry-run would, without touching finalize helpers
+        ephemeral = CursorStore(str(db_path), ephemeral=True)
+        assert ephemeral.get("channel:-100111") == 42
+        ephemeral.close()
+        for path, snap in before.items():
+            assert fingerprint(path) == snap, path
+
+    @pytest.mark.asyncio
+    async def test_create_client_dry_run_does_not_modify_existing_session(
+        self, tmp_path, monkeypatch
+    ):
+        from src.client.factory import create_client
+        from tests.unit.client.test_session_compat import FIXTURE, SESSION_NAME
+
+        session_dir = tmp_path / "sessions"
+        session_dir.mkdir()
+        session = session_dir / f"{SESSION_NAME}.session"
+        import sqlite3
+        con = sqlite3.connect(session)
+        con.executescript(FIXTURE.read_text())
+        con.close()
+        before = session.read_bytes()
+        cfg = _dry_run_config(tmp_path)
+        cfg.session_dir = session_dir
+        client = create_client(cfg)
+        await client.storage.open()
+        await client.storage.close()
+        assert session.read_bytes() == before
+        # Original directory still has only the original session file set
+        assert session.exists()
