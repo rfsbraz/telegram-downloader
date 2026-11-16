@@ -268,6 +268,7 @@ class TestDownloadBatchPhotos:
             MagicMock(),
             MagicMock(),
             history,
+            include_photos=True,
         )
 
         retry.assert_awaited_once()
@@ -310,6 +311,7 @@ class TestDownloadBatchPhotos:
             MagicMock(),
             MagicMock(),
             history,
+            include_photos=True,
         )
 
         history.contains.assert_called_once_with("already")

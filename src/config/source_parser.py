@@ -147,7 +147,7 @@ def build_filters(filter_config: GlobalFilters) -> CompositeFilter:
             raise ValueError(f"Invalid max_size: {e}")
 
     if min_bytes is not None or max_bytes is not None:
-        filters.append(SizeFilter(min_size=min_bytes, max_size=max_bytes))
+        filters.append(SizeFilter(min_bytes=min_bytes, max_bytes=max_bytes))
 
     # Date filter
     if filter_config.only_after or filter_config.only_before:
@@ -162,8 +162,8 @@ def build_filters(filter_config: GlobalFilters) -> CompositeFilter:
     if filter_config.include_patterns or filter_config.exclude_patterns:
         filters.append(
             PatternFilter(
-                include_patterns=filter_config.include_patterns,
-                exclude_patterns=filter_config.exclude_patterns,
+                include=filter_config.include_patterns,
+                exclude=filter_config.exclude_patterns,
             )
         )
 

@@ -31,7 +31,7 @@ from src.config.schema import SourceConfig
 from src.config.source_parser import parse_sources, validate_source_access
 from src.organization import build_destination_path, is_duplicate, resolve_conflict
 from src.sources.base import BaseSource
-from src.media import collect_matching_ids, get_media, media_filename
+from src.media import collect_matching_ids, get_media, is_photo_only, media_filename
 from src.state import CursorStore, DownloadHistory, PendingDownloads
 from src.client import create_client, diskspace, download_media_with_retry
 from src.client.downloader import DiskFullError
@@ -115,6 +115,7 @@ async def download_batch(
     source_config: SourceConfig,
     history: "DownloadHistory | None" = None,
     limiter: "RateLimiter | None" = None,
+    include_photos: bool = False,
 ) -> tuple[dict, set[int], set[int]]:
     """Download a batch of messages concurrently with semaphore limit.
 
@@ -135,7 +136,7 @@ async def download_batch(
     Returns:
         Tuple of (stats, failed_message_ids, deferred_message_ids).
         stats is a counter dict: downloaded, skipped_duplicate, skipped_tracked,
-        skipped_error, deferred_low_space, bytes_downloaded.
+        skipped_error, skipped_filter, deferred_low_space, bytes_downloaded.
         Failed IDs are messages where download_media_with_retry returned False.
         Skips (history hit, duplicate, path error) are NOT failures.
         Deferred IDs did not fit in the free space minus min_free_space
@@ -147,6 +148,7 @@ async def download_batch(
         "skipped_duplicate": 0,
         "skipped_tracked": 0,
         "skipped_error": 0,
+        "skipped_filter": 0,
         "deferred_low_space": 0,
         "bytes_downloaded": 0,
     }
@@ -166,8 +168,16 @@ async def download_batch(
         """Download single message with semaphore."""
 
         async with semaphore:  # Acquire semaphore slot
-            # Extract media and filename
-            media = get_media(msg, include_photos=True)
+            # Extract media and filename. Honour the source photo setting so
+            # photos queued while include_photos was on are not downloaded
+            # after it is turned off, and are dropped from pending.
+            if is_photo_only(msg) and not include_photos:
+                fname = media_filename(msg, msg.photo) or f"message_{msg.id}"
+                log.info(f"Skip (photos disabled): {fname}")
+                cursor_store.set(cursor_key, msg.id)
+                stats["skipped_filter"] += 1
+                return
+            media = get_media(msg, include_photos=include_photos)
             fname = media_filename(msg, media) if media else f"message_{msg.id}"
             media_size = getattr(media, "file_size", 0)
 
@@ -389,6 +399,7 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
         "skipped_duplicate": 0,
         "skipped_tracked": 0,
         "skipped_error": 0,
+        "skipped_filter": 0,
         "deferred_low_space": 0,
         "bytes_downloaded": 0,
     }
@@ -497,6 +508,7 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
                     candidates, semaphore, client, Path(cfg.download_dir),
                     state_store, cursor_key, cfg, log, source, source_config, history,
                     limiter,
+                    include_photos=getattr(composite_filter, "include_photos", False),
                 )
 
                 # Remove from pending: orphaned + processed (everything except
@@ -560,6 +572,7 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
         totals["skipped_duplicate"]
         + totals["skipped_tracked"]
         + totals["skipped_error"]
+        + totals["skipped_filter"]
     )
     breakdown_parts = []
     if totals["skipped_duplicate"]:
@@ -568,6 +581,8 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
         breakdown_parts.append(f"{totals['skipped_tracked']} already tracked")
     if totals["skipped_error"]:
         breakdown_parts.append(f"{totals['skipped_error']} path error")
+    if totals["skipped_filter"]:
+        breakdown_parts.append(f"{totals['skipped_filter']} filter")
     breakdown = f" ({', '.join(breakdown_parts)})" if breakdown_parts else ""
 
     log.info("=" * 18 + " Run Summary " + "=" * 18)
