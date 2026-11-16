@@ -393,3 +393,49 @@ class TestEnvLists:
         assert gf.archive_exts == [".7z"]
         assert gf.only_after == datetime(2026, 1, 1)
         assert gf.only_before == datetime(2026, 1, 31, 23, 59, 59)
+
+
+class TestIncludePhotosEnv:
+    """TDL_*_INCLUDE_PHOTOS is a boolean, default off."""
+
+    @pytest.fixture
+    def base_env(self, clean_env, monkeypatch):
+        monkeypatch.setenv("TDL_API_ID", "12345")
+        monkeypatch.setenv("TDL_API_HASH", "abc123")
+        monkeypatch.setenv("TDL_SOURCES_0_URL", "https://t.me/channel")
+
+    def test_default_is_false(self, base_env):
+        config = load_config("/nonexistent/config.yaml")
+        assert config.global_filters.include_photos is False
+        assert config.sources[0].filters is None or config.sources[0].filters.include_photos is False
+
+    def test_global_env_true(self, base_env, monkeypatch):
+        monkeypatch.setenv("TDL_GLOBAL_FILTERS_INCLUDE_PHOTOS", "true")
+        config = load_config("/nonexistent/config.yaml")
+        assert config.global_filters.include_photos is True
+
+    def test_global_env_false(self, base_env, monkeypatch):
+        monkeypatch.setenv("TDL_GLOBAL_FILTERS_INCLUDE_PHOTOS", "false")
+        config = load_config("/nonexistent/config.yaml")
+        assert config.global_filters.include_photos is False
+
+    def test_source_env_true(self, base_env, monkeypatch):
+        monkeypatch.setenv("TDL_SOURCES_0_FILTERS_INCLUDE_PHOTOS", "true")
+        filters = load_config("/nonexistent/config.yaml").sources[0].filters
+        assert filters.include_photos is True
+
+    def test_yaml_include_photos(self, yaml_config_file, clean_env):
+        config_file = yaml_config_file("""
+api_id: 12345
+api_hash: abc123
+global_filters:
+  include_photos: true
+sources:
+  - url: https://t.me/channel
+    filters:
+      include_photos: false
+""")
+        config = load_config(str(config_file))
+        assert config.global_filters.include_photos is True
+        assert config.sources[0].filters.include_photos is False
+

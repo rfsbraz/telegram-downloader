@@ -39,6 +39,31 @@ class MockDocument:
         self.file_unique_id = file_unique_id
 
 
+
+class MockPhoto:
+    """Mock kurigram/Pyrogram Photo object for testing."""
+
+    def __init__(
+        self,
+        file_unique_id: str = "photo_unique",
+        file_size: int = 80000,
+        width: int = 1280,
+        height: int = 720,
+        file_id: str = "photoid",
+        sizes: Any = None,
+        thumbs: Any = None,
+    ):
+        self.file_unique_id = file_unique_id
+        self.file_size = file_size
+        self.width = width
+        self.height = height
+        self.file_id = file_id
+        self.sizes = sizes
+        self.thumbs = thumbs
+        # Telegram photos have no file_name
+        self.file_name = None
+
+
 class MockMessage:
     """Mock Pyrogram Message object for testing."""
 
@@ -51,6 +76,7 @@ class MockMessage:
         animation: Any = None,
         voice: Any = None,
         video_note: Any = None,
+        photo: Any = None,
         date: datetime | None = None,
         text: str | None = None,
     ):
@@ -61,6 +87,7 @@ class MockMessage:
         self.animation = animation
         self.voice = voice
         self.video_note = video_note
+        self.photo = photo
         self.date = date or datetime.now()
         self.text = text
 

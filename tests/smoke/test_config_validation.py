@@ -50,6 +50,7 @@ class TestGlobalFiltersValidation:
 
         assert filters.extensions == [".pdf", ".epub", ".mobi"]
         assert filters.allow_archives is False
+        assert filters.include_photos is False
         assert filters.min_size is None
         assert filters.max_size is None
 
@@ -63,10 +64,12 @@ class TestGlobalFiltersValidation:
             "max_size": "500MB",
             "include_patterns": ["*ebook*", "*book*"],
             "exclude_patterns": ["*sample*"],
+            "include_photos": True,
         })
 
         assert ".djvu" in filters.extensions
         assert filters.allow_archives is True
+        assert filters.include_photos is True
         assert "100KB" == filters.min_size
 
 

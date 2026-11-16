@@ -218,6 +218,17 @@ class TestGlobalFilters:
         assert filters.include_patterns == []
         assert filters.exclude_patterns == []
 
+    def test_default_include_photos(self):
+        """Photos should be excluded by default."""
+        filters = GlobalFilters.model_validate({})
+        assert filters.include_photos is False
+
+    def test_include_photos_can_be_enabled(self):
+        """include_photos should accept an explicit true value."""
+        filters = GlobalFilters.model_validate({"include_photos": True})
+        assert filters.include_photos is True
+
+
 
 class TestDaemonConfig:
     """Tests for DaemonConfig schema."""
