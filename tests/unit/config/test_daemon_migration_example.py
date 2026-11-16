@@ -64,7 +64,8 @@ def test_example_channel_uses_daemon_channel_id(example_env):
     # TELEGRAM_DAEMON_CHANNEL=1234567890 becomes the t.me/c/ link
     assert len(cfg.sources) == 1
     chat_id, topic_id = parse_telegram_url(cfg.sources[0].url)
-    assert chat_id == "-1001234567890"
+    assert chat_id == -1001234567890
+    assert type(chat_id) is int
     assert topic_id is None
 
 
