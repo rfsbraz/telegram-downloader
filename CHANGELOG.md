@@ -5,6 +5,21 @@
 
 * add missing dependency ([4542021](https://github.com/rfsbraz/telegram-downloader/commit/454202198134f12a4e8561bde262b69cad10035b))
 
+## [1.7.0](https://github.com/rfsbraz/telegram-downloader/compare/v1.6.0...v1.7.0) (2026-11-16)
+
+
+### Features
+
+* **downloader:** add TDL_DRY_RUN to preview downloads without writing state ([#124](https://github.com/rfsbraz/telegram-downloader/issues/124)) ([1f85d80](https://github.com/rfsbraz/telegram-downloader/commit/1f85d80120cb1adf66485b32a0d41a69ccaa7260))
+* **filters:** add opt-in downloads for Telegram photos ([#122](https://github.com/rfsbraz/telegram-downloader/issues/122)) ([1d98e30](https://github.com/rfsbraz/telegram-downloader/commit/1d98e306f4f5f8bf859ef5ecdabc671d5943d772))
+
+
+### Bug Fixes
+
+* **config:** return t.me/c chat ids as ints ([#128](https://github.com/rfsbraz/telegram-downloader/issues/128)) ([56c62ea](https://github.com/rfsbraz/telegram-downloader/commit/56c62eafbc2b7f5fad1954fd2f769adbf64d9998))
+* **downloads:** reserve only the unwritten part of running downloads ([#117](https://github.com/rfsbraz/telegram-downloader/issues/117)) ([62bcd68](https://github.com/rfsbraz/telegram-downloader/commit/62bcd68e63f3820816539f199ec67d046d9bdd4d))
+* **filters:** pass PatternFilter the include and exclude kwargs it expects ([#125](https://github.com/rfsbraz/telegram-downloader/issues/125)) ([120b25c](https://github.com/rfsbraz/telegram-downloader/commit/120b25c527e38148581a7287bebc7a24ac01dde2))
+
 ## [1.6.0](https://github.com/rfsbraz/telegram-downloader/compare/v1.5.0...v1.6.0) (2026-11-09)
 
 
