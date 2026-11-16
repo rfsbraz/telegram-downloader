@@ -144,30 +144,31 @@ async def dry_run_source(
         }
     planned_ids = planned_ids if planned_ids is not None else set()
     planned_paths = planned_paths if planned_paths is not None else {}
-    messages = []
+    # Filter during the scan so rejected Message objects can be released.
+    # Keep only compact metadata for matches, then reserve oldest-first.
+    candidates: list[tuple[int, str, int, str | None]] = []
     iterate_error = None
     try:
         async for msg in source.iterate_new_media(last_seen_id):
-            messages.append(msg)
+            _media, fname, size, unique = _media_info(msg)
+            if hasattr(composite_filter, "rejection_reason"):
+                reason = await composite_filter.rejection_reason(msg)
+            elif not await composite_filter.matches(msg):
+                reason = "filter"
+            else:
+                reason = None
+            if reason:
+                log.info(
+                    f"Would skip ({reason}): {fname} ({format_bytes(size)}) from {display_name}"
+                )
+                stats["skipped_filter"] += 1
+                continue
+            candidates.append((msg.id, fname, size, unique))
     except Exception as exc:
         iterate_error = exc
     # Normal downloads process pending batches oldest-first. Preview the same way.
-    messages.sort(key=lambda m: m.id)
-    for msg in messages:
-        _media, fname, size, unique = _media_info(msg)
-        if hasattr(composite_filter, "rejection_reason"):
-            reason = await composite_filter.rejection_reason(msg)
-        elif not await composite_filter.matches(msg):
-            reason = "filter"
-        else:
-            reason = None
-        if reason:
-            log.info(
-                f"Would skip ({reason}): {fname} ({format_bytes(size)}) from {display_name}"
-            )
-            stats["skipped_filter"] += 1
-            continue
-
+    candidates.sort(key=lambda item: item[0])
+    for _msg_id, fname, size, unique in candidates:
         if unique and history is not None and (
             history.contains(unique) or unique in planned_ids
         ):

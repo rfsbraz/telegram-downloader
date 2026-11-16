@@ -569,17 +569,21 @@ class TestDryRunPreviewAccuracyFollowup:
         import weakref
         from src.main import dry_run_source
 
-        retained_after_yield = []
+        # Weakrefs to every yielded message. After each yield, previously
+        # processed messages must already be collectable. The current
+        # message may still be bound in the consumer's async-for variable.
+        refs = []
+        alive_previous = []
 
         class ScanningSource(YieldingSource):
             async def iterate_new_media(self, last_seen_id):
                 for msg_id, name in ((30, "skip.txt"), (20, "notes.txt"), (10, "book.pdf")):
                     msg = make_msg(msg_id, file_name=name, file_unique_id=f"id-{msg_id}")
-                    ref = weakref.ref(msg)
+                    refs.append(weakref.ref(msg))
                     yield msg
                     del msg
                     gc.collect()
-                    retained_after_yield.append((name, ref() is not None))
+                    alive_previous.append(sum(1 for r in refs[:-1] if r() is not None))
 
         source = ScanningSource("Preview Channel", [])
         filt = build_filters(GlobalFilters(extensions=[".pdf", ".epub", ".mobi"]))
@@ -599,11 +603,9 @@ class TestDryRunPreviewAccuracyFollowup:
             )
         assert stats["skipped_filter"] == 2
         assert stats["downloaded"] == 1
-        assert retained_after_yield == [
-            ("skip.txt", False),
-            ("notes.txt", False),
-            ("book.pdf", False),
-        ]
+        assert alive_previous == [0, 0, 0]
+        gc.collect()
+        assert all(r() is None for r in refs)
         assert "Would skip" in caplog.text
         assert "Would download: book.pdf" in caplog.text
 

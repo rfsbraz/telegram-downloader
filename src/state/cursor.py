@@ -4,6 +4,7 @@ Replaces YAML with SQLite for better concurrency, reliability, and crash recover
 Uses WAL mode for concurrent access and implements retry logic for database locking.
 """
 
+import hashlib
 import shutil
 import sqlite3
 import tempfile
@@ -18,26 +19,59 @@ class StateError(Exception):
     pass
 
 
+def _fingerprint_sqlite_files(path: Path) -> tuple:
+    """Return hashes of a SQLite main file and any WAL/SHM sidecars."""
+    parts = []
+    for candidate in (path, Path(str(path) + "-wal"), Path(str(path) + "-shm")):
+        if candidate.is_file():
+            parts.append(
+                (candidate.name, candidate.stat().st_size, hashlib.sha256(candidate.read_bytes()).hexdigest())
+            )
+        else:
+            parts.append((candidate.name, 0, None))
+    return tuple(parts)
+
+
+def _copy_sqlite_files(src: Path, dest: Path) -> None:
+    """Copy a SQLite main file and sidecars without opening them."""
+    shutil.copyfile(src, dest)
+    for suffix in ("-wal", "-shm"):
+        side = Path(str(src) + suffix)
+        target = Path(str(dest) + suffix)
+        if side.is_file():
+            shutil.copyfile(side, target)
+        elif target.exists():
+            target.unlink()
+
+
 def open_sqlite(db_path: str, *, ephemeral: bool = False) -> sqlite3.Connection:
     """Open a SQLite connection, optionally as an in-memory clone.
 
-    When ephemeral is true, the on-disk file is opened read-only (if it
-    exists) and copied into memory. The session directory, state.db, and
-    WAL files are never created or written.
+    When ephemeral is true, the on-disk file and any WAL/SHM sidecars are
+    copied into a temp directory without opening the originals, then backed
+    up into memory. The copy is retried until the source files are unchanged
+    for the duration of the copy, so a concurrent checkpoint cannot tear
+    the snapshot. The session directory, state.db, and WAL files are never
+    created or written.
     """
     if ephemeral:
-        # Copy the file and any WAL/SHM sidecars to a temp dir, then open the
-        # copy. Opening the original with mode=ro can still create sidecars.
         conn = sqlite3.connect(":memory:")
         path = Path(db_path)
         if path.is_file():
             with tempfile.TemporaryDirectory() as tmp:
                 dest = Path(tmp) / path.name
-                shutil.copyfile(path, dest)
-                for suffix in ("-wal", "-shm"):
-                    side = Path(str(path) + suffix)
-                    if side.is_file():
-                        shutil.copyfile(side, Path(str(dest) + suffix))
+                consistent = False
+                for _ in range(8):
+                    before = _fingerprint_sqlite_files(path)
+                    _copy_sqlite_files(path, dest)
+                    after = _fingerprint_sqlite_files(path)
+                    if before == after:
+                        consistent = True
+                        break
+                if not consistent:
+                    raise StateError(
+                        f"Could not take a consistent snapshot of {db_path}"
+                    )
                 src = sqlite3.connect(dest)
                 try:
                     src.backup(conn)
