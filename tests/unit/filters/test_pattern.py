@@ -25,7 +25,7 @@ class TestBuildFiltersPatterns:
 
         assert await filt.matches(_msg("mybook.pdf"))
         assert not await filt.matches(_msg("draft-book.pdf"))
-        assert not await filt.matches(_msg("notes.txt"))
+        assert not await filt.matches(_msg("notes.pdf"))
 
     @pytest.mark.asyncio
     async def test_exclude_only_patterns_are_applied(self):
