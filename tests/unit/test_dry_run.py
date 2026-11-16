@@ -744,6 +744,25 @@ class TestDryRunPhotos:
         pending.add_batch.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_skips_photos_when_flag_is_off_even_if_jpg_is_allowed(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        from tests.unit.media.test_include_photos import photo_msg
+
+        msg = photo_msg(msg_id=30, file_unique_id="photo-a", file_size=80000)
+        args, _, state_store, pending, download = make_run_args(
+            tmp_path, [msg], monkeypatch, include_photos=False, extensions=[".jpg"]
+        )
+        with caplog.at_level(logging.INFO):
+            summary = await run_check(*args)
+        assert summary["files_downloaded"] == 0
+        assert "Would download:" not in caplog.text
+        assert "Would skip (photos disabled):" in caplog.text
+        download.assert_not_awaited()
+        state_store.set.assert_not_called()
+        pending.add_batch.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_pattern_filter_from_build_filters_uses_generated_photo_name(
         self, tmp_path, monkeypatch, caplog
     ):
