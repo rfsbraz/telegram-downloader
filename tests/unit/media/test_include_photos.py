@@ -1,7 +1,7 @@
 """Opt-in Telegram photo downloads (issue #59).
 
 Photos are ignored by default. When include_photos is on, the largest
-size is selected, a photo_<date>_<id>.jpg name is generated, and
+size is selected, a photo_<date>_<identity>.jpg name is generated, and
 file_unique_id still feeds history-based dedup.
 """
 from datetime import datetime
@@ -32,7 +32,7 @@ from tests.conftest import MockDocument, MockMessage, MockPhoto
 
 PHOTO_DATE = datetime(2026, 7, 5)
 PHOTO_ID = 12345
-PHOTO_NAME = "photo_2026-07-05_12345.jpg"
+PHOTO_NAME = "photo_2026-07-05_photo_unique.jpg"
 
 
 def photo_msg(
@@ -88,7 +88,7 @@ class TestPhotoHelpers:
         photo = MockPhoto(sizes=[small, large], file_size=1200, width=90, height=90)
         assert largest_photo(photo_msg(photo=photo)) is large
 
-    def test_photo_filename_uses_message_date_and_id(self):
+    def test_photo_filename_uses_message_date_and_unique_id(self):
         assert photo_filename(photo_msg()) == PHOTO_NAME
 
     def test_photo_filename_differs_for_distinct_photos_with_the_same_message_id(self):
@@ -104,6 +104,10 @@ class TestPhotoHelpers:
         assert photo_filename(one) != photo_filename(two)
         assert photo_filename(one) == "photo_2026-07-05_-1001_10.jpg"
         assert photo_filename(two) == "photo_2026-07-05_-1002_10.jpg"
+
+    def test_photo_filename_falls_back_to_message_id_when_identity_is_missing(self):
+        msg = photo_msg(msg_id=10, photo=MockPhoto(file_unique_id=None))
+        assert photo_filename(msg) == "photo_2026-07-05_10.jpg"
 
     def test_media_filename_generates_jpg_for_photos(self):
         msg = photo_msg()
@@ -287,14 +291,14 @@ class TestDownloadBatchPhotos:
 
         retry.assert_awaited_once()
         dest = retry.await_args.args[2]
-        assert dest.name == PHOTO_NAME
+        assert dest.name == "photo_2026-07-05_photo_unique_abc.jpg"
         assert stats["downloaded"] == 1
         assert failed == set()
         assert deferred == set()
         history.record.assert_called_once()
         recorded = history.record.call_args.args
         assert recorded[0] == "photo_unique_abc"
-        assert recorded[1] == PHOTO_NAME
+        assert recorded[1] == "photo_2026-07-05_photo_unique_abc.jpg"
 
     @pytest.mark.asyncio
     async def test_history_dedup_uses_photo_unique_id(self, tmp_path, monkeypatch):

@@ -69,11 +69,28 @@ def has_source_media(message: Any) -> bool:
     return get_media(message, include_photos=True) is not None
 
 
+def _photo_name_token(message: Any) -> str:
+    """Return a stable photo-name token that is not chat-local message id alone.
+
+    file_unique_id identifies the photo across chats. When it is missing,
+    the chat id is included because message ids collide in a shared folder.
+    """
+    photo = largest_photo(message) or getattr(message, "photo", None)
+    unique = getattr(photo, "file_unique_id", None) if photo is not None else None
+    if unique:
+        return str(unique)
+    chat = getattr(message, "chat", None)
+    chat_id = getattr(chat, "id", None) if chat is not None else getattr(message, "chat_id", None)
+    if chat_id is not None:
+        return f"{chat_id}_{message.id}"
+    return str(message.id)
+
+
 def photo_filename(message: Any) -> str:
-    """Generate photo_<YYYY-MM-DD>_<id>.jpg from the message date and id."""
+    """Generate photo_<YYYY-MM-DD>_<identity>.jpg from date and a stable id."""
     date = getattr(message, "date", None)
     date_str = date.strftime("%Y-%m-%d") if date is not None and hasattr(date, "strftime") else "unknown"
-    return f"photo_{date_str}_{message.id}.jpg"
+    return f"photo_{date_str}_{_photo_name_token(message)}.jpg"
 
 
 def media_filename(message: Any, media: Any) -> str:
