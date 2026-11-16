@@ -22,6 +22,8 @@ class DateFilter(BaseFilter):
     (datetime.fromtimestamp), so it is converted to aware UTC before comparing.
     """
 
+    skip_reason = "date"
+
     def __init__(
         self,
         only_after: datetime | None = None,

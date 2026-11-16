@@ -101,6 +101,96 @@ def format_bytes(num_bytes: int) -> str:
     return f"{value:.1f} TB"
 
 
+def _media_info(msg: Message) -> tuple[object | None, str, int, str | None]:
+    """Return (media, filename, size, file_unique_id) for a message."""
+    media = (
+        msg.document or
+        msg.audio or
+        msg.video or
+        msg.animation or
+        msg.voice or
+        msg.video_note
+    )
+    fname = (getattr(media, "file_name", None) if media else None) or f"message_{msg.id}"
+    size = getattr(media, "file_size", 0) if media else 0
+    unique = getattr(media, "file_unique_id", None) if media else None
+    return media, fname, size or 0, unique
+
+
+async def dry_run_source(
+    source: BaseSource,
+    composite_filter,
+    source_config: SourceConfig,
+    last_seen_id: int,
+    download_dir: Path,
+    flat_structure: bool,
+    history,
+    log,
+    display_name: str,
+) -> dict:
+    """Evaluate filters and destinations for one source without writing anything."""
+    stats = {
+        "downloaded": 0,
+        "skipped_duplicate": 0,
+        "skipped_tracked": 0,
+        "skipped_error": 0,
+        "skipped_filter": 0,
+        "deferred_low_space": 0,
+        "bytes_downloaded": 0,
+    }
+    async for msg in source.iterate_new_media(last_seen_id):
+        _media, fname, size, unique = _media_info(msg)
+        if hasattr(composite_filter, "rejection_reason"):
+            reason = await composite_filter.rejection_reason(msg)
+        elif not await composite_filter.matches(msg):
+            reason = "filter"
+        else:
+            reason = None
+        if reason:
+            log.info(
+                f"Would skip ({reason}): {fname} ({format_bytes(size)}) from {display_name}"
+            )
+            stats["skipped_filter"] += 1
+            continue
+
+        if history and unique and history.contains(unique):
+            log.info(
+                f"Would skip (already tracked): {fname} ({format_bytes(size)}) "
+                f"from {display_name}"
+            )
+            stats["skipped_tracked"] += 1
+            continue
+
+        try:
+            dest = await build_destination_path(
+                download_dir,
+                source,
+                fname,
+                source_config,
+                flat_structure,
+                create_dirs=False,
+            )
+        except ValueError as e:
+            log.info(f"Would skip (path error): {fname} from {display_name}: {e}")
+            stats["skipped_error"] += 1
+            continue
+
+        if dest.exists() and is_duplicate(dest, size):
+            log.info(
+                f"Would skip (duplicate): {dest.name} ({format_bytes(size)}) "
+                f"from {display_name}"
+            )
+            stats["skipped_duplicate"] += 1
+            continue
+
+        log.info(
+            f"Would download: {fname} ({format_bytes(size)}) from {display_name} -> {dest}"
+        )
+        stats["downloaded"] += 1
+        stats["bytes_downloaded"] += size
+    return stats
+
+
 async def download_batch(
     messages: list[Message],
     semaphore: asyncio.Semaphore,
@@ -395,15 +485,23 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
         "skipped_duplicate": 0,
         "skipped_tracked": 0,
         "skipped_error": 0,
+        "skipped_filter": 0,
         "deferred_low_space": 0,
         "bytes_downloaded": 0,
     }
     total_failed = 0
     sources_failed = 0
+    dry_run = cfg.dry_run is True
+
+    if dry_run:
+        log.warning(
+            "DRY RUN is active: nothing will be downloaded and no state will be written. "
+            "Unset TDL_DRY_RUN when you are ready to download."
+        )
 
     # Disk space guard (issue #61): one loud error instead of failing file by file
     reserve = diskspace.reserve_bytes(cfg)
-    if reserve:
+    if reserve and not dry_run:
         free = diskspace.free_bytes(Path(cfg.download_dir))
         if free < reserve:
             log.error(
@@ -435,6 +533,22 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
                 f"last_seen={last_seen_id}"
             )
             log.info("=" * 60)
+
+            if dry_run:
+                batch_stats = await dry_run_source(
+                    source,
+                    composite_filter,
+                    source_config,
+                    last_seen_id,
+                    Path(cfg.download_dir),
+                    cfg.flat_structure,
+                    history,
+                    log,
+                    display_name,
+                )
+                for key in totals:
+                    totals[key] += batch_stats.get(key, 0)
+                continue
 
             max_downloads = cfg.max_downloads_per_run or 0
 
@@ -514,7 +628,7 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
                 total_downloaded += batch_stats["downloaded"]
                 total_failed += len(failed_ids)
                 for key in totals:
-                    totals[key] += batch_stats[key]
+                    totals[key] += batch_stats.get(key, 0)
 
                 # Track failures so repeatedly failing messages are eventually
                 # dead-lettered instead of retried indefinitely
@@ -568,6 +682,7 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
         totals["skipped_duplicate"]
         + totals["skipped_tracked"]
         + totals["skipped_error"]
+        + totals.get("skipped_filter", 0)
     )
     breakdown_parts = []
     if totals["skipped_duplicate"]:
@@ -576,17 +691,21 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
         breakdown_parts.append(f"{totals['skipped_tracked']} already tracked")
     if totals["skipped_error"]:
         breakdown_parts.append(f"{totals['skipped_error']} path error")
+    if totals.get("skipped_filter"):
+        breakdown_parts.append(f"{totals['skipped_filter']} filter")
     breakdown = f" ({', '.join(breakdown_parts)})" if breakdown_parts else ""
 
+    downloaded_label = "Files that would download:" if dry_run else "Files downloaded:  "
+    bytes_label = "Bytes that would transfer:" if dry_run else "Bytes downloaded:  "
     log.info("=" * 18 + " Run Summary " + "=" * 18)
     log.info(f"Sources checked:    {len(sources_with_filters)}")
     log.info(f"Sources failed:     {sources_failed}")
-    log.info(f"Files downloaded:   {totals['downloaded']}")
+    log.info(f"{downloaded_label} {totals['downloaded']}")
     log.info(f"Files skipped:      {skipped_total}{breakdown}")
     log.info(f"Files failed:       {total_failed}")
     if totals["deferred_low_space"]:
         log.info(f"Files deferred:     {totals['deferred_low_space']} (low disk space)")
-    log.info(f"Bytes downloaded:   {format_bytes(totals['bytes_downloaded'])}")
+    log.info(f"{bytes_label} {format_bytes(totals['bytes_downloaded'])}")
     log.info(f"Duration:           {duration:.1f}s")
     log.info("=" * 49)
 
@@ -606,6 +725,7 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
         "files_failed": total_failed,
         "files_deferred_low_space": totals["deferred_low_space"],
         "low_disk_space": totals["deferred_low_space"] > 0,
+        "dry_run": dry_run,
         "bytes_downloaded": format_bytes(totals["bytes_downloaded"]),
         "duration": f"{duration:.1f}s",
     }

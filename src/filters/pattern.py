@@ -24,6 +24,8 @@ class PatternFilter(BaseFilter):
     Excludes are checked first for early rejection.
     """
 
+    skip_reason = "pattern"
+
     def __init__(
         self,
         include: list[str] | None = None,
