@@ -224,3 +224,21 @@ class TestBuildDestinationPathSecurity:
         resolved_temp = temp_dir.resolve()
         assert str(resolved_temp) in str(result)
         assert result.parent == resolved_temp
+
+
+class TestBuildDestinationPathCreateDirs:
+    """Dry-run must be able to compute a path without creating folders."""
+
+    @pytest.mark.asyncio
+    async def test_create_dirs_false_does_not_mkdir(self, temp_dir):
+        source = MockSource(display_name="Preview Channel")
+        config = SourceConfig(url="https://t.me/test", name="Preview Channel")
+
+        result = await build_destination_path(
+            temp_dir, source, "book.pdf", config, flat_structure=False, create_dirs=False
+        )
+
+        assert result.name == "book.pdf"
+        assert result.parent == temp_dir / "Preview_Channel"
+        assert not result.parent.exists()
+
