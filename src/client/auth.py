@@ -6,6 +6,7 @@ session: it goes to stdout only, and the warning to stderr.
 """
 
 import sys
+import tempfile
 from typing import TextIO
 
 from src.client.factory import create_client
@@ -20,12 +21,18 @@ WARNING = (
 async def run_auth(config: Config, out: TextIO | None = None, err: TextIO | None = None) -> None:
     """Log in interactively and print the session string.
 
-    A configured TDL_SESSION_STRING is ignored here: the point is a fresh login.
+    The login is always fresh: a configured TDL_SESSION_STRING is ignored, and the
+    session lives in a throwaway directory, so the runtime session file is neither
+    reused nor changed. Dry-run is off for the same reason.
     """
     out = out or sys.stdout
     err = err or sys.stderr
-    client = create_client(config.model_copy(update={"session_string": None}))
-    async with client:
-        session_string = await client.export_session_string()
+    with tempfile.TemporaryDirectory(prefix="tdl-auth-session-") as session_dir:
+        fresh = config.model_copy(
+            update={"session_string": None, "session_dir": session_dir, "dry_run": False}
+        )
+        client = create_client(fresh)
+        async with client:
+            session_string = await client.export_session_string()
     print(session_string, file=out)
     print(WARNING, file=err)
