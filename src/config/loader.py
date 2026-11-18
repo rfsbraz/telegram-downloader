@@ -12,6 +12,7 @@ if any TDL_SOURCES_* variable is set, the env sources replace the file's.
 Environment variable format:
 - TDL_API_ID=12345
 - TDL_API_HASH=abc123
+- TDL_SESSION_STRING=... (exported login; wins over the session file)
 - TDL_TEST_MODE=true (connects to Telegram test servers)
 - TDL_SOURCES_0_URL=https://t.me/channel
 - TDL_SOURCES_0_FILTERS_EXTENSIONS=.pdf,.epub,.mobi
@@ -74,6 +75,7 @@ FLAT_FIELDS = {
     "api_id",
     "api_hash",
     "phone_number",
+    "session_string",
     "test_mode",
     "download_dir",
     "session_dir",

@@ -18,7 +18,8 @@ from src.config.schema import Config
 def create_client(config: Config) -> Client:
     """Create Pyrogram client with secure session handling.
 
-    Session files are stored in config.session_dir with owner-only permissions (700).
+    With config.session_string set, the client logs in from it and ignores the
+    session file. Otherwise session files are stored in config.session_dir with owner-only permissions (700).
     The session directory is created if it doesn't exist.
 
     Args:
@@ -50,7 +51,12 @@ def create_client(config: Config) -> Client:
     session_dir = Path(config.session_dir)
     dry_run = getattr(config, "dry_run", False)
     dry_run_tmpdir = None
-    if dry_run:
+    # A session string is the whole login, held in memory: no session file is
+    # read or written, so dry-run needs no copy of one either.
+    use_string = bool(config.session_string)
+    if dry_run and use_string:
+        workdir = session_dir
+    elif dry_run:
         session_file = session_dir / "telegram_downloader.session"
         if not session_file.is_file():
             raise ValueError(
@@ -89,8 +95,11 @@ def create_client(config: Config) -> Client:
         "test_mode": config.test_mode,
     }
 
-    # Add phone number if provided (optional for session reuse)
-    if config.phone_number:
+    if use_string:
+        # Precedence: session string > session file > interactive login.
+        client_kwargs["session_string"] = config.session_string
+    elif config.phone_number:
+        # Add phone number if provided (optional for session reuse)
         client_kwargs["phone_number"] = config.phone_number
 
     # Create and return unauthenticated client

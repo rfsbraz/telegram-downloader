@@ -20,4 +20,9 @@ for dir in /downloads /app/.sessions; do
     fi
 done
 
+# `docker run ... auth` runs the one-shot login helper, which prints a session string
+if [ "$1" = "auth" ]; then
+    set -- python3 -m src.main "$@"
+fi
+
 exec gosu appuser "$@"
