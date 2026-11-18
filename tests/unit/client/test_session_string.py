@@ -141,6 +141,24 @@ async def test_auth_ignores_a_configured_session_string_and_logs_in_again(
     assert create.call_args.args[0].session_string is None
 
 
+async def test_auth_logs_in_fresh_in_a_temporary_session_dir_with_dry_run_off(minimal_config_dict, tmp_path, auth_module):
+    real_dir = tmp_path / "sessions"
+    config = Config(**minimal_config_dict, session_dir=real_dir, dry_run=True)
+    seen = {}
+
+    def fake_create(cfg):
+        seen["dir"] = Path(cfg.session_dir)
+        seen["dry_run"] = cfg.dry_run
+        return fake_login_client()
+
+    with patch.object(auth_module, "create_client", side_effect=fake_create):
+        await auth_module.run_auth(config, out=io.StringIO(), err=io.StringIO())
+    assert seen["dir"] != real_dir
+    assert seen["dry_run"] is False
+    assert not real_dir.exists()
+    assert not seen["dir"].exists()
+
+
 async def test_the_auth_argument_runs_the_login_helper_not_the_downloader():
     from src import main as main_module
 
