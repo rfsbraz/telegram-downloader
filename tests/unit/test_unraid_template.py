@@ -274,6 +274,42 @@ def docker_run_preview(root: ET.Element | None = None) -> str:
     return " \\\n  ".join(lines)
 
 
+def test_blank_optional_variables_would_still_load(monkeypatch):
+    """Unraid exports blank optional fields as VAR=''. That must still validate."""
+    import os
+
+    from pydantic import ValidationError
+
+    from src.config.loader import _load_from_env
+    from src.config.schema import Config
+
+    for key in list(os.environ):
+        if key.startswith("TDL_"):
+            monkeypatch.delenv(key)
+    for cfg in _configs(_root()):
+        if cfg.attrib.get("Type") != "Variable":
+            continue
+        target = cfg.attrib.get("Target") or ""
+        if not target.startswith("TDL_"):
+            continue
+        value = cfg.attrib.get("Default") or ""
+        if not value and cfg.attrib.get("Required") == "true":
+            if target == "TDL_API_ID":
+                value = "12345"
+            elif target.endswith("_URL"):
+                value = "https://t.me/example"
+            else:
+                value = "placeholder"
+        monkeypatch.setenv(target, value)
+    try:
+        Config.model_validate(_load_from_env())
+    except ValidationError as exc:
+        raise AssertionError(
+            "A template variable with an empty default would fail startup "
+            "when Unraid exports it as an empty string"
+        ) from exc
+
+
 def test_docker_run_preview_includes_volumes_and_image():
     preview = docker_run_preview()
     assert "/downloads" in preview

@@ -32,6 +32,5 @@
   <Config Name="Timezone" Target="TZ" Default="UTC" Description="Container timezone, for example Europe/Lisbon. Used for scheduled active hours." Type="Variable" Display="always" Required="false" Mask="false"/>
   <Config Name="PUID" Target="PUID" Default="99" Description="User ID for downloaded file ownership. Unraid's nobody user is 99. Use the same value in the first-run login container." Type="Variable" Display="advanced" Required="false" Mask="false"/>
   <Config Name="PGID" Target="PGID" Default="100" Description="Group ID for downloaded file ownership. Unraid's users group is 100." Type="Variable" Display="advanced" Required="false" Mask="false"/>
-  <Config Name="Notifications" Target="TDL_NOTIFICATIONS_ENABLED" Default="false" Description="Enable download notifications. Also set a webhook URL below." Type="Variable" Display="advanced" Required="false" Mask="false"/>
-  <Config Name="Discord Webhook" Target="TDL_NOTIFICATIONS_DISCORD_WEBHOOK_URL" Default="" Description="Discord webhook URL for download notifications." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+  <Config Name="Notifications" Target="TDL_NOTIFICATIONS_ENABLED" Default="false" Description="Enable download notifications. To use Discord, add TDL_NOTIFICATIONS_DISCORD_WEBHOOK_URL with a real URL. A blank value fails startup." Type="Variable" Display="advanced" Required="false" Mask="false"/>
 </Container>
