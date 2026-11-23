@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>telegram-downloader</Name>
+  <Repository>rfsbraz/telegram-downloader:latest</Repository>
+  <Registry>https://hub.docker.com/r/rfsbraz/telegram-downloader</Registry>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/rfsbraz/telegram-downloader/issues</Support>
+  <Project>https://github.com/rfsbraz/telegram-downloader</Project>
+  <GitHub>https://github.com/rfsbraz/telegram-downloader</GitHub>
+  <ReadMe>https://github.com/rfsbraz/telegram-downloader#install-on-unraid</ReadMe>
+  <TemplateURL>https://raw.githubusercontent.com/rfsbraz/telegram-downloader/main/templates/telegram-downloader.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/rfsbraz/telegram-downloader/main/templates/icon.png</Icon>
+  <Overview>Self-hosted daemon that automatically downloads media from Telegram channels, groups, and forum topics. Configure sources, filters, and daemon mode with environment variables. This container has no web UI. First-run authentication: Unraid's container console cannot accept the Telegram login code. Stop the container, run a one-shot interactive container against the same Sessions path (see the Install on Unraid section of the project README), enter the code sent to your Telegram account, then start this container. Get API credentials at https://my.telegram.org/apps</Overview>
+  <Category>Downloaders:MediaApp:Other</Category>
+  <ExtraSearchTerms>telegram media downloader tdl</ExtraSearchTerms>
+  <Requires>Telegram API credentials from https://my.telegram.org/apps, and a one-shot interactive login before the first daemon start.</Requires>
+  <License>MIT</License>
+  <DonateText>Buy me a coffee</DonateText>
+  <DonateLink>https://buymeacoffee.com/rfsbraz</DonateLink>
+  <Date>2026-11-23</Date>
+  <Changes>Add the initial Unraid Community Applications template.</Changes>
+  <Config Name="Downloads" Target="/downloads" Default="/mnt/user/downloads/telegram" Mode="rw" Description="Where downloaded files are stored." Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="Sessions" Target="/app/.sessions" Default="/mnt/user/appdata/telegram-downloader" Mode="rw" Description="Telegram session file and download state. Back this up. After a first-run login, telegram_downloader.session lives here." Type="Path" Display="always" Required="true" Mask="false"/>
+  <Config Name="API ID" Target="TDL_API_ID" Default="" Description="Telegram API ID from https://my.telegram.org/apps" Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="API Hash" Target="TDL_API_HASH" Default="" Description="Telegram API hash from https://my.telegram.org/apps" Type="Variable" Display="always" Required="true" Mask="true"/>
+  <Config Name="Phone Number" Target="TDL_PHONE_NUMBER" Default="" Description="Phone number with country code, for example +1234567890. Used for the first-run login." Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="Source URL" Target="TDL_SOURCES_0_URL" Default="" Description="First Telegram source, for example https://t.me/channel_name or https://t.me/c/1234567890/1. Add TDL_SOURCES_1_URL, TDL_SOURCES_2_URL, and so on for more sources." Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="Daemon Mode" Target="TDL_DAEMON_ENABLED" Default="true" Description="Run continuously and check sources on an interval. Leave this enabled after the first-run login." Type="Variable" Display="always" Required="true" Mask="false"/>
+  <Config Name="Check Interval" Target="TDL_DAEMON_CHECK_INTERVAL" Default="300" Description="Seconds between source checks (60-86400). Default is 300." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Timezone" Target="TZ" Default="UTC" Description="Container timezone, for example Europe/Lisbon. Used for scheduled active hours." Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="PUID" Target="PUID" Default="99" Description="User ID for downloaded file ownership. Unraid's nobody user is 99. Use the same value in the first-run login container." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="PGID" Target="PGID" Default="100" Description="Group ID for downloaded file ownership. Unraid's users group is 100." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Notifications" Target="TDL_NOTIFICATIONS_ENABLED" Default="false" Description="Enable download notifications. Also set a webhook URL below." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Discord Webhook" Target="TDL_NOTIFICATIONS_DISCORD_WEBHOOK_URL" Default="" Description="Discord webhook URL for download notifications." Type="Variable" Display="advanced" Required="false" Mask="true"/>
+</Container>

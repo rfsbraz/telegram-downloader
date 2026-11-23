@@ -72,6 +72,8 @@ docker compose run --rm telegram-downloader
 
 On first run, you'll be prompted for the Telegram verification code sent to your phone. After authentication, restart with `docker compose up -d` for daemon mode.
 
+Installing on Unraid? See [Install on Unraid](#install-on-unraid) for the template and the first-run login steps.
+
 ## Configuration
 
 All configuration is done via environment variables with the `TDL_` prefix. See the [full configuration reference](https://rfsbraz.github.io/telegram-downloader/configuration/) for all options.
@@ -216,6 +218,48 @@ docker pull ghcr.io/rfsbraz/telegram-downloader:latest
 | `sha-abc1234` | Specific commit |
 
 Multi-arch: `linux/amd64` and `linux/arm64` (Raspberry Pi 4+, Apple Silicon, AWS Graviton).
+
+## Install on Unraid
+
+This repository includes a Community Applications XML template at [templates/telegram-downloader.xml](templates/telegram-downloader.xml). It is not listed in the Community Applications store yet. Install it as a user template.
+
+### Add the template
+
+1. Copy `templates/telegram-downloader.xml` to `/boot/config/plugins/dockerMan/templates-user/telegram-downloader.xml` on your Unraid server.
+2. Open the **Docker** tab and click **Add Container**.
+3. Select **telegram-downloader** from the **Template** dropdown.
+4. Set **API ID**, **API Hash**, and **Phone Number** from [my.telegram.org/apps](https://my.telegram.org/apps).
+5. Set at least one source URL (`TDL_SOURCES_0_URL`).
+6. Confirm the **Downloads** and **Sessions** host paths. The Sessions path also stores download state. Back it up.
+7. Click **Apply**.
+
+If the container starts before a session file exists, stop it before the next step.
+
+### First-run authentication
+
+Unraid's container console opens a new shell. It does not attach to the app's stdin, so you cannot enter the Telegram login code there.
+
+Authenticate with a one-shot container that uses the same Sessions path and `PUID`/`PGID` as the template:
+
+```bash
+docker run --rm -it \
+  -e PUID=99 \
+  -e PGID=100 \
+  -e TDL_API_ID=YOUR_API_ID \
+  -e TDL_API_HASH=YOUR_API_HASH \
+  -e TDL_PHONE_NUMBER=+1234567890 \
+  -e TDL_DAEMON_ENABLED=false \
+  -v /mnt/user/appdata/telegram-downloader:/app/.sessions \
+  rfsbraz/telegram-downloader:latest
+```
+
+Enter the login code Telegram sends to your account. If two-factor authentication is enabled, enter that password too.
+
+You can omit source URLs in this one-shot command. After login the process exits with an error that no sources are configured. That is expected. The session file is already saved in the Sessions path as `telegram_downloader.session`.
+
+Start the template container after login completes. It reuses the session and runs in daemon mode.
+
+If you later see `AUTH_KEY_UNREGISTERED`, delete `telegram_downloader.session` from the Sessions path, run the one-shot command again, then restart the container.
 
 ## Troubleshooting
 

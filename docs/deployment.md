@@ -12,6 +12,37 @@ Best practices for deploying Telegram Downloader to production.
     - [ ] Discord webhook URL (optional but recommended)
     - [x] Basic Linux administration knowledge
 
+
+## Install on Unraid
+
+The repository includes a Community Applications XML template at [`templates/telegram-downloader.xml`](https://github.com/rfsbraz/telegram-downloader/blob/main/templates/telegram-downloader.xml). It is not listed in the Community Applications store yet. Install it as a user template.
+
+1. Copy the template to `/boot/config/plugins/dockerMan/templates-user/telegram-downloader.xml` on the Unraid server.
+2. Open the **Docker** tab, click **Add Container**, and select **telegram-downloader**.
+3. Set `TDL_API_ID`, `TDL_API_HASH`, and `TDL_PHONE_NUMBER` from https://my.telegram.org/apps.
+4. Set at least one `TDL_SOURCES_0_URL`, and confirm the Downloads (`/downloads`) and Sessions (`/app/.sessions`) host paths.
+5. Click **Apply**. If the container starts before a session file exists, stop it.
+
+Unraid's container console opens a new shell and cannot accept the Telegram login code. Authenticate with a one-shot container that uses the same Sessions path and `PUID`/`PGID` as the template:
+
+```bash
+docker run --rm -it \
+  -e PUID=99 \
+  -e PGID=100 \
+  -e TDL_API_ID=YOUR_API_ID \
+  -e TDL_API_HASH=YOUR_API_HASH \
+  -e TDL_PHONE_NUMBER=+1234567890 \
+  -e TDL_DAEMON_ENABLED=false \
+  -v /mnt/user/appdata/telegram-downloader:/app/.sessions \
+  rfsbraz/telegram-downloader:latest
+```
+
+Enter the login code (and the two-factor password, if you use one). If you omit source URLs, the process exits after login with an error that no sources are configured. That is expected. The session file is already saved as `telegram_downloader.session` in the Sessions path.
+
+Start the template container after login completes.
+
+If you later see `AUTH_KEY_UNREGISTERED`, delete that session file, run the one-shot command again, then restart the container.
+
 ## Production Configuration
 
 ### 1. Environment Variables
