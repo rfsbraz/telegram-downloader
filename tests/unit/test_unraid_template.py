@@ -141,11 +141,12 @@ def test_has_no_webui():
 
 
 def test_overview_covers_first_run_auth():
-    overview = _text(_root(), "Overview").lower()
-    assert "login" in overview or "authentica" in overview
-    assert "one-shot" in overview or "one shot" in overview
-    assert "console" in overview
-    assert "my.telegram.org" in overview
+    overview = _text(_root(), "Overview")
+    lowered = overview.lower()
+    assert "login" in lowered or "authentica" in lowered
+    assert "one-shot" in lowered or "one shot" in lowered
+    assert "console" in lowered
+    assert overview.endswith("https://my.telegram.org/apps")
 
 
 def test_required_paths_are_mapped():
