@@ -14,6 +14,7 @@ from src.config.schema import (
     SourceConfig,
     GlobalFilters,
     DaemonConfig,
+    MetricsConfig,
     NotificationConfig,
     RetryConfig,
 )
@@ -319,6 +320,31 @@ class TestNotificationConfig:
         # Invalid: too high
         with pytest.raises(ValidationError):
             NotificationConfig.model_validate({"throttle_seconds": 3601})
+
+
+class TestMetricsConfig:
+    """Tests for MetricsConfig schema (issue #63)."""
+
+    def test_metrics_disabled_by_default(self, minimal_config_dict):
+        """Prometheus /metrics is off unless it is explicitly enabled."""
+        config = Config.model_validate(minimal_config_dict)
+        assert config.metrics.enabled is False
+        assert config.metrics.port == 9184
+
+    def test_metrics_can_be_enabled(self):
+        config = MetricsConfig.model_validate({"enabled": True, "port": 9100})
+        assert config.enabled is True
+        assert config.port == 9100
+
+    def test_port_must_be_in_valid_range(self):
+        with pytest.raises(ValidationError):
+            MetricsConfig.model_validate({"port": 0})
+        with pytest.raises(ValidationError):
+            MetricsConfig.model_validate({"port": 65536})
+        config = MetricsConfig.model_validate({"port": 1})
+        assert config.port == 1
+        config = MetricsConfig.model_validate({"port": 65535})
+        assert config.port == 65535
 
 
 class TestRetryConfig:
