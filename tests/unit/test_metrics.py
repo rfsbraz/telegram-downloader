@@ -264,3 +264,105 @@ class TestFloodWaitMetric:
         status, body = _scrape(metrics_server.port)
         assert status == 200
         assert _metric_value(body, "telegram_downloader_floodwait_seconds_total") == 12
+
+
+
+class TestMetricsPartialBatchAndIsolation:
+    async def test_completed_download_is_recorded_if_the_batch_is_cancelled(
+        self, tmp_path, monkeypatch, metrics_server
+    ):
+        """A file already saved must still appear on /metrics if the batch is cancelled."""
+        import asyncio
+
+        async def fake_dest(download_dir, source, fname, source_config, flat):
+            return download_dir / fname
+
+        hang = asyncio.Event()
+
+        async def fake_download(client, message, dest, *args, **kwargs):
+            if message.id == 1:
+                return True
+            await hang.wait()
+            return True
+
+        monkeypatch.setattr(main_module, "build_destination_path", fake_dest)
+        monkeypatch.setattr(main_module, "download_media_with_retry", fake_download)
+
+        cfg = MagicMock()
+        cfg.min_free_space = ""
+        cfg.flat_structure = True
+        cfg.post_download_hook = None
+        source_config = SourceConfig(url="https://t.me/books", name="Books")
+        source = MagicMock()
+        source.get_cursor_key.return_value = "channel:-100111"
+
+        from src.main import download_batch
+
+        task = asyncio.create_task(
+            download_batch(
+                [_make_msg(1, "ok.pdf", 1000, "u-ok"), _make_msg(2, "slow.pdf", 2000, "u-slow")],
+                asyncio.Semaphore(1),
+                MagicMock(),
+                tmp_path,
+                MagicMock(),
+                "channel:-100111",
+                cfg,
+                logging.getLogger("test-metrics-cancel"),
+                source,
+                source_config,
+            )
+        )
+
+        source_label = {"source": "Books"}
+        for _ in range(50):
+            await asyncio.sleep(0.05)
+            _, body = _scrape(metrics_server.port)
+            try:
+                if _metric_value(body, "telegram_downloader_files_downloaded_total", source_label) == 1:
+                    break
+            except AssertionError:
+                continue
+        else:
+            task.cancel()
+            raise AssertionError("completed download was not recorded before the hanging file")
+
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        status, body = _scrape(metrics_server.port)
+        assert status == 200
+        assert _metric_value(body, "telegram_downloader_files_downloaded_total", source_label) == 1
+        assert _metric_value(body, "telegram_downloader_bytes_downloaded_total", source_label) == 1000
+
+    async def test_pending_metric_failure_does_not_hide_floodwait(self, monkeypatch):
+        """A metrics queue read must not replace a propagating FloodWait."""
+        from pyrogram.errors import FloodWait
+
+        cfg = MagicMock()
+        cfg.dry_run = False
+        cfg.min_free_space = ""
+        cfg.max_concurrent_downloads = 1
+        cfg.max_downloads_per_run = 0
+        cfg.max_download_attempts = 5
+        cfg.download_dir = "/tmp"
+
+        source = MagicMock()
+        source.get_cursor_key.return_value = "channel:-100111"
+        source.get_display_name = AsyncMock(side_effect=FloodWait(value=120))
+        source_config = SourceConfig(url="https://t.me/books", name="Books")
+        pending = MagicMock()
+        pending.count.side_effect = RuntimeError("pending db locked")
+        state = MagicMock()
+        state.get.return_value = 0
+
+        with pytest.raises(FloodWait):
+            await run_check(
+                cfg,
+                logging.getLogger("test-metrics-floodwait"),
+                state,
+                MagicMock(),
+                [(source, MagicMock(), source_config)],
+                None,
+                pending,
+            )
