@@ -165,18 +165,6 @@ class Metrics:
         if seconds:
             self._floodwait_seconds.inc(seconds)
 
-    def record_batch(self, source: str, stats: dict, failed: int = 0) -> None:
-        """Apply one run-summary batch to the counters."""
-        self.record_downloaded(
-            source,
-            stats.get("downloaded", 0),
-            stats.get("bytes_downloaded", 0),
-        )
-        self.record_failed(source, failed)
-        for key, reason in SKIP_REASON_KEYS.items():
-            self.record_skipped(source, reason, stats.get(key, 0))
-
-
 class _DisabledMetrics:
     """No-op recorder used when metrics are off (the default)."""
 
@@ -208,10 +196,6 @@ class _DisabledMetrics:
 
     def record_floodwait(self, seconds: float) -> None:
         return None
-
-    def record_batch(self, source: str, stats: dict, failed: int = 0) -> None:
-        return None
-
 
 _current: Metrics | _DisabledMetrics = _DisabledMetrics()
 

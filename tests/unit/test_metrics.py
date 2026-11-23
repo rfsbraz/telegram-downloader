@@ -335,7 +335,9 @@ class TestMetricsPartialBatchAndIsolation:
         assert _metric_value(body, "telegram_downloader_files_downloaded_total", source_label) == 1
         assert _metric_value(body, "telegram_downloader_bytes_downloaded_total", source_label) == 1000
 
-    async def test_pending_metric_failure_does_not_hide_floodwait(self, monkeypatch):
+    async def test_pending_metric_failure_does_not_hide_floodwait(
+        self, monkeypatch, metrics_server
+    ):
         """A metrics queue read must not replace a propagating FloodWait."""
         from pyrogram.errors import FloodWait
 

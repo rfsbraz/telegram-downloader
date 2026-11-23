@@ -42,6 +42,7 @@ from src.client.errors import AUTH_ERRORS
 from src.daemon.health import HealthMonitor
 from src.daemon.service import notify_low_disk_space
 from src.metrics import (
+    SKIP_REASON_KEYS,
     configure as configure_metrics,
     get_metrics,
     shutdown as shutdown_metrics,
@@ -281,6 +282,21 @@ async def download_batch(
     failed_ids: set[int] = set()
     deferred_ids: set[int] = set()
     reserve = diskspace.reserve_bytes(config)
+    label = source_label(source_config, cursor_key)
+    metrics = get_metrics()
+
+    def note_downloaded(count: int = 1, bytes_count: int = 0) -> None:
+        stats["downloaded"] += count
+        stats["bytes_downloaded"] += bytes_count
+        metrics.record_downloaded(label, count, bytes_count)
+
+    def note_skipped(reason_key: str) -> None:
+        stats[reason_key] += 1
+        metrics.record_skipped(label, SKIP_REASON_KEYS[reason_key], 1)
+
+    def note_failed(msg_id: int) -> None:
+        failed_ids.add(msg_id)
+        metrics.record_failed(label, 1)
     # Downloads already started in this batch: msg id -> (size, partial file). Their
     # unwritten bytes count against the free space, so concurrent downloads can't all pass
     # the check against the same free space. Written bytes are already in free_bytes.
@@ -305,7 +321,7 @@ async def download_batch(
                 fname = media_filename(msg, msg.photo) or f"message_{msg.id}"
                 log.info(f"Skip (photos disabled): {fname}")
                 cursor_store.set(cursor_key, msg.id)
-                stats["skipped_filter"] += 1
+                note_skipped("skipped_filter")
                 return
             media = get_media(msg, include_photos=include_photos)
             fname = media_filename(msg, media) if media else f"message_{msg.id}"
@@ -316,7 +332,7 @@ async def download_batch(
             if history and file_unique_id and history.contains(file_unique_id):
                 log.info(f"Skip (already downloaded): {fname}")
                 cursor_store.set(cursor_key, msg.id)
-                stats["skipped_tracked"] += 1
+                note_skipped("skipped_tracked")
                 return
 
             # Build organized destination path (includes per-source folder and validation)
@@ -337,7 +353,7 @@ async def download_batch(
             except ValueError as e:
                 log.error(f"Path validation failed for {fname}: {e}")
                 cursor_store.set(cursor_key, msg.id)
-                stats["skipped_error"] += 1
+                note_skipped("skipped_error")
                 return
 
             # Check for duplicates and resolve conflicts
@@ -345,7 +361,7 @@ async def download_batch(
                 if is_duplicate(dest, media_size):
                     log.info(f"Skip duplicate: {dest.name} (same size)")
                     cursor_store.set(cursor_key, msg.id)
-                    stats["skipped_duplicate"] += 1
+                    note_skipped("skipped_duplicate")
                     return
                 # Different content, resolve conflict
                 original_dest = dest
@@ -355,7 +371,7 @@ async def download_batch(
                 except RuntimeError as e:
                     log.error(f"Cannot resolve conflict for {dest.name}: {e}")
                     cursor_store.set(cursor_key, msg.id)
-                    stats["skipped_error"] += 1
+                    note_skipped("skipped_error")
                     return
 
             # Disk space guard (issue #61): keep it pending for the next run
@@ -395,8 +411,7 @@ async def download_batch(
                 in_flight.pop(msg.id, None)
 
             if success:
-                stats["downloaded"] += 1
-                stats["bytes_downloaded"] += media_size or 0
+                note_downloaded(1, media_size or 0)
                 cursor_store.set(cursor_key, msg.id)
                 if history and file_unique_id:
                     history.record(file_unique_id, fname, media_size, cursor_key, msg.id)
@@ -416,7 +431,7 @@ async def download_batch(
                     )
             else:
                 log.error(f"Failed to download: {dest.name}")
-                failed_ids.add(msg.id)
+                note_failed(msg.id)
 
     # Use TaskGroup (Python 3.11+) for structured concurrency
     async with asyncio.TaskGroup() as tg:
@@ -706,7 +721,6 @@ async def _run_check_body(
                 total_failed += len(failed_ids)
                 for key in totals:
                     totals[key] += batch_stats.get(key, 0)
-                get_metrics().record_batch(label, batch_stats, len(failed_ids))
 
                 # Track failures so repeatedly failing messages are eventually
                 # dead-lettered instead of retried indefinitely
@@ -754,8 +768,16 @@ async def _run_check_body(
                 exc_info=True,
             )
         finally:
-            if not dry_run and pending is not None:
-                get_metrics().set_pending_queue_size(label, pending.count(cursor_key))
+            metrics = get_metrics()
+            if metrics.enabled and not dry_run and pending is not None:
+                try:
+                    metrics.set_pending_queue_size(label, pending.count(cursor_key))
+                except Exception:
+                    log.debug(
+                        "Failed to update pending queue metric for %s",
+                        label,
+                        exc_info=True,
+                    )
 
     # --- Run summary (issue #34) ---
     duration = time.monotonic() - run_started
