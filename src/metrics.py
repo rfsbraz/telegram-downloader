@@ -156,10 +156,17 @@ class Metrics:
         self._pending_queue_size.labels(source=source).set(size)
 
     def record_check(
-        self, duration_seconds: float, timestamp: Optional[float] = None
+        self,
+        duration_seconds: float,
+        timestamp: Optional[float] = None,
+        *,
+        completed: bool = True,
     ) -> None:
         self._check_duration.observe(duration_seconds)
-        self._last_check_timestamp.set(time.time() if timestamp is None else timestamp)
+        if completed:
+            self._last_check_timestamp.set(
+                time.time() if timestamp is None else timestamp
+            )
 
     def record_floodwait(self, seconds: float) -> None:
         if seconds:
@@ -190,7 +197,11 @@ class _DisabledMetrics:
         return None
 
     def record_check(
-        self, duration_seconds: float, timestamp: Optional[float] = None
+        self,
+        duration_seconds: float,
+        timestamp: Optional[float] = None,
+        *,
+        completed: bool = True,
     ) -> None:
         return None
 

@@ -243,6 +243,7 @@ async def download_batch(
     history: "DownloadHistory | None" = None,
     limiter: "RateLimiter | None" = None,
     include_photos: bool = False,
+    metrics_source: str | None = None,
 ) -> tuple[dict, set[int], set[int]]:
     """Download a batch of messages concurrently with semaphore limit.
 
@@ -282,7 +283,7 @@ async def download_batch(
     failed_ids: set[int] = set()
     deferred_ids: set[int] = set()
     reserve = diskspace.reserve_bytes(config)
-    label = source_label(source_config, cursor_key)
+    label = metrics_source or source_label(source_config, cursor_key)
     metrics = get_metrics()
 
     def note_downloaded(count: int = 1, bytes_count: int = 0) -> None:
@@ -540,12 +541,18 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
     """
     run_started = time.monotonic()
     try:
-        return await _run_check_body(
+        result = await _run_check_body(
             cfg, log, state_store, client, sources_with_filters,
             history, pending, limiter, run_started,
         )
-    finally:
+    except BaseException:
+        get_metrics().record_check(
+            time.monotonic() - run_started, completed=False
+        )
+        raise
+    else:
         get_metrics().record_check(time.monotonic() - run_started)
+        return result
 
 
 async def _run_check_body(
@@ -711,6 +718,7 @@ async def _run_check_body(
                     state_store, cursor_key, cfg, log, source, source_config, history,
                     limiter,
                     include_photos=getattr(composite_filter, "include_photos", False),
+                    metrics_source=label,
                 )
 
                 # Remove from pending: orphaned + processed (everything except

@@ -368,3 +368,100 @@ class TestMetricsPartialBatchAndIsolation:
                 None,
                 pending,
             )
+
+
+    async def test_unnamed_source_uses_display_name_on_all_metrics(
+        self, tmp_path, monkeypatch, metrics_server
+    ):
+        """Counters and the pending gauge must share the resolved display name."""
+        async def fake_dest(download_dir, source, fname, source_config, flat):
+            return download_dir / fname
+
+        monkeypatch.setattr(main_module, "build_destination_path", fake_dest)
+        monkeypatch.setattr(main_module, "collect_matching_ids", AsyncMock(return_value=[]))
+        monkeypatch.setattr(main_module, "download_media_with_retry", AsyncMock(return_value=True))
+
+        cfg = MagicMock()
+        cfg.dry_run = False
+        cfg.min_free_space = ""
+        cfg.flat_structure = True
+        cfg.download_dir = tmp_path
+        cfg.post_download_hook = None
+        cfg.max_concurrent_downloads = 1
+        cfg.max_downloads_per_run = 0
+        cfg.max_download_attempts = 5
+
+        source = MagicMock()
+        source.chat_id = -100111
+        source.get_cursor_key.return_value = "channel:-100111"
+        source.get_display_name = AsyncMock(return_value="Books")
+        # No configured name: the label must still be the display name.
+        source_config = SourceConfig(url="https://t.me/books")
+        pending = MagicMock()
+        pending.has_pending.return_value = True
+        pending.get_max_message_id.return_value = 1
+        pending.get_oldest.side_effect = [[1], []]
+        pending.count.return_value = 0
+        pending.count_exhausted.return_value = 0
+        client = MagicMock()
+        client.get_messages = AsyncMock(return_value=[_make_msg(1, "ok.pdf", 1000, "u-ok")])
+        state = MagicMock()
+        state.get.return_value = 0
+
+        history = MagicMock()
+        history.contains.return_value = False
+
+        await run_check(
+            cfg,
+            logging.getLogger("test-metrics-label"),
+            state,
+            client,
+            [(source, MagicMock(), source_config)],
+            history,
+            pending,
+        )
+
+        status, body = _scrape(metrics_server.port)
+        assert status == 200
+        source_label = {"source": "Books"}
+        assert _metric_value(body, "telegram_downloader_files_downloaded_total", source_label) == 1
+        assert _metric_value(body, "telegram_downloader_pending_queue_size", source_label) == 0
+        assert "channel:-100111" not in body
+
+    async def test_aborted_check_does_not_advance_last_check_timestamp(
+        self, metrics_server
+    ):
+        from pyrogram.errors import FloodWait
+
+        cfg = MagicMock()
+        cfg.dry_run = False
+        cfg.min_free_space = ""
+        cfg.max_concurrent_downloads = 1
+        cfg.max_downloads_per_run = 0
+        cfg.max_download_attempts = 5
+        cfg.download_dir = "/tmp"
+
+        source = MagicMock()
+        source.get_cursor_key.return_value = "channel:-100111"
+        source.get_display_name = AsyncMock(side_effect=FloodWait(value=120))
+        source_config = SourceConfig(url="https://t.me/books", name="Books")
+        pending = MagicMock()
+        pending.count.return_value = 0
+        state = MagicMock()
+        state.get.return_value = 0
+
+        with pytest.raises(FloodWait):
+            await run_check(
+                cfg,
+                logging.getLogger("test-metrics-aborted-check"),
+                state,
+                MagicMock(),
+                [(source, MagicMock(), source_config)],
+                None,
+                pending,
+            )
+
+        status, body = _scrape(metrics_server.port)
+        assert status == 200
+        assert _metric_value(body, "telegram_downloader_last_check_timestamp_seconds") == 0
+        assert _metric_value(body, "telegram_downloader_check_duration_seconds_count") == 1
