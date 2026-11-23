@@ -53,6 +53,9 @@ ENV PYTHONUNBUFFERED=1 \
     TDL_SESSION_DIR=/app/.sessions \
     TDL_DAEMON_HEALTH_FILE=/app/health_status.txt
 
+# Metrics listen here only when TDL_METRICS_ENABLED=true (default off)
+EXPOSE 9184
+
 # Health check configuration for Docker orchestration
 HEALTHCHECK --interval=2m \
             --timeout=10s \

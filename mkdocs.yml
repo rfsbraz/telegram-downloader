@@ -178,6 +178,7 @@ nav:
   - Operations:
     - Troubleshooting: troubleshooting.md
     - Deployment: deployment.md
+    - Metrics: metrics.md
 
   - Examples:
     - Overview: examples/index.md

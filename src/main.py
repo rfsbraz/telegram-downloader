@@ -41,6 +41,12 @@ from src.notifications import NotificationManager, DiscordNotifier, GenericWebho
 from src.client.errors import AUTH_ERRORS
 from src.daemon.health import HealthMonitor
 from src.daemon.service import notify_low_disk_space
+from src.metrics import (
+    configure as configure_metrics,
+    get_metrics,
+    shutdown as shutdown_metrics,
+    source_label,
+)
 
 
 def setup_logging(log_file: str, verbosity: str) -> logging.Logger:
@@ -518,6 +524,18 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
         bytes downloaded, duration) for notification channels.
     """
     run_started = time.monotonic()
+    try:
+        return await _run_check_body(
+            cfg, log, state_store, client, sources_with_filters,
+            history, pending, limiter, run_started,
+        )
+    finally:
+        get_metrics().record_check(time.monotonic() - run_started)
+
+
+async def _run_check_body(
+    cfg, log, state_store, client, sources_with_filters, history, pending, limiter, run_started
+):
     totals = {
         "downloaded": 0,
         "skipped_duplicate": 0,
@@ -566,9 +584,11 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
     for source, composite_filter, source_config in sources_with_filters:
         cursor_key = source.get_cursor_key()
         display_name = cursor_key
+        label = source_label(source_config, display_name)
         try:
             last_seen_id = state_store.get(cursor_key, 0)
             display_name = await source.get_display_name()
+            label = source_label(source_config, display_name)
 
             log.info("=" * 60)
             log.info(
@@ -686,6 +706,7 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
                 total_failed += len(failed_ids)
                 for key in totals:
                     totals[key] += batch_stats.get(key, 0)
+                get_metrics().record_batch(label, batch_stats, len(failed_ids))
 
                 # Track failures so repeatedly failing messages are eventually
                 # dead-lettered instead of retried indefinitely
@@ -732,6 +753,9 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
                 f"Source {display_name} failed, continuing with the next one: {e}",
                 exc_info=True,
             )
+        finally:
+            if not dry_run and pending is not None:
+                get_metrics().set_pending_queue_size(label, pending.count(cursor_key))
 
     # --- Run summary (issue #34) ---
     duration = time.monotonic() - run_started
@@ -868,6 +892,10 @@ async def main(
         log.setLevel(getattr(logging, cfg.daemon.log_level.upper()))
     warn_ignored_settings(cfg, log)
 
+    if getattr(getattr(cfg, "metrics", None), "enabled", False) is True:
+        metrics = configure_metrics(True, port=cfg.metrics.port)
+        log.info(f"Prometheus metrics enabled at 0.0.0.0:{metrics.port}/metrics")
+
     # Initialize state store (in sessions dir so it persists via volume mount).
     # Dry-run uses in-memory clones so the session dir, state.db, WAL, and
     # state.yaml are never created or rewritten.
@@ -968,6 +996,7 @@ async def main(
         await wait_for_shutdown()
     finally:
         # Cleanup
+        shutdown_metrics()
         if history:
             history.close()
         pending.close()

@@ -48,6 +48,12 @@ class DaemonConfig(BaseModel):
         return v
 
 
+class MetricsConfig(BaseModel):
+    """Prometheus /metrics endpoint configuration (issue #63)."""
+    enabled: bool = Field(default=False)
+    port: int = Field(default=9184, ge=1, le=65535)
+
+
 class NotificationConfig(BaseModel):
     """Notification delivery configuration."""
     enabled: bool = Field(default=False)
@@ -167,6 +173,9 @@ class Config(BaseModel):
 
     # Notification configuration
     notifications: NotificationConfig = Field(default_factory=NotificationConfig)
+
+    # Prometheus /metrics (off by default)
+    metrics: MetricsConfig = Field(default_factory=MetricsConfig)
 
     # Legacy fields (DEPRECATED - for backward compatibility with existing downloader.py)
     chat_id: Optional[int] = None

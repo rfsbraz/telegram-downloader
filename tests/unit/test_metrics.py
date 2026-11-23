@@ -63,7 +63,8 @@ def _unused_port() -> int:
 def _metric_value(body: str, name: str, labels: dict[str, str] | None = None) -> float:
     """Return the value of a single Prometheus sample."""
     if labels:
-        inner = ",".join(f'{key}="{value}"' for key, value in labels.items())
+        # Prometheus serializes labels in alphabetical order.
+        inner = ",".join(f'{key}="{value}"' for key, value in sorted(labels.items()))
         pattern = re.compile(
             rf"^{re.escape(name)}\{{{re.escape(inner)}\}} (\S+)$", re.MULTILINE
         )
@@ -236,7 +237,7 @@ class TestMetricsFollowRunSummary:
         from tests.unit.test_dry_run import make_msg, make_run_args
 
         messages = [make_msg(10, "book.pdf", 2048, "u-dry")]
-        args = make_run_args(tmp_path, messages, monkeypatch, dry_run=True)
+        args, *_rest = make_run_args(tmp_path, messages, monkeypatch, dry_run=True)
         summary = await run_check(*args)
         assert summary["files_downloaded"] == 1
         assert summary["dry_run"] is True
@@ -247,16 +248,12 @@ class TestMetricsFollowRunSummary:
         assert _metric_value(body, "telegram_downloader_last_check_timestamp_seconds") > 0
         assert _metric_value(body, "telegram_downloader_check_duration_seconds_count") == 1
         # It must not count previewed files as real downloads.
-        assert "telegram_downloader_files_downloaded_total" not in [
-            line.split("{")[0].split(" ")[0]
+        samples = [
+            line
             for line in body.splitlines()
-            if line and not line.startswith("#")
-        ] or all(
-            not line.startswith("telegram_downloader_files_downloaded_total{")
-            or line.endswith(" 0")
-            or line.endswith(" 0.0")
-            for line in body.splitlines()
-        )
+            if line.startswith("telegram_downloader_files_downloaded_total{")
+        ]
+        assert samples == []
 
 
 class TestFloodWaitMetric:

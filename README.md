@@ -31,6 +31,7 @@ Telegram is great for sharing files, but manually downloading from multiple sour
 | **Auto-Organization** | Per-source folders, duplicate detection, conflict resolution, persistent download tracking |
 | **Daemon Mode** | Runs continuously with configurable check intervals |
 | **Notifications** | Discord webhooks, generic HTTP POST |
+| **Metrics** | Opt-in Prometheus `/metrics` endpoint |
 | **Docker Native** | Multi-arch images (amd64/arm64), health checks, non-root |
 
 ## Quick Start
@@ -164,6 +165,17 @@ closes is never interrupted. Both settings default to unrestricted.
 - TDL_NOTIFICATIONS_ENABLED=true
 - TDL_NOTIFICATIONS_DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...
 ```
+
+### Metrics
+
+Off by default. When enabled, Prometheus can scrape `/metrics` on port 9184:
+
+```yaml
+- TDL_METRICS_ENABLED=true
+- TDL_METRICS_PORT=9184
+```
+
+See the [metrics guide](https://rfsbraz.github.io/telegram-downloader/metrics/) for the scrape config, the metric list, and a starter Grafana dashboard.
 
 ### Docker Environment
 
