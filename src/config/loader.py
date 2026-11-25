@@ -16,6 +16,8 @@ Environment variable format:
 - TDL_SOURCES_0_URL=https://t.me/channel
 - TDL_SOURCES_0_FILTERS_EXTENSIONS=.pdf,.epub,.mobi
 - TDL_DAEMON_ENABLED=true
+- TDL_METRICS_ENABLED=true
+- TDL_METRICS_PORT=9184
 """
 import os
 import re
@@ -67,7 +69,7 @@ INT_FIELDS = {
 }
 
 # Field name endings that indicate integers (for nested fields)
-INT_SUFFIXES = {"_id", "_interval", "_seconds", "_downloads", "_retries", "_delay", "_timeout"}
+INT_SUFFIXES = {"_id", "_interval", "_seconds", "_downloads", "_retries", "_delay", "_timeout", "_port"}
 
 # Top-level fields that should NOT be nested (underscore is part of name)
 FLAT_FIELDS = {
@@ -114,6 +116,8 @@ NESTED_MAPPINGS = {
     "notifications_discord_webhook_url": ("notifications", "discord_webhook_url"),
     "notifications_discord_username": ("notifications", "discord_username"),
     "notifications_generic_webhook_url": ("notifications", "generic_webhook_url"),
+    "metrics_enabled": ("metrics", "enabled"),
+    "metrics_port": ("metrics", "port"),
     "global_filters_extensions": ("global_filters", "extensions"),
     "global_filters_allow_archives": ("global_filters", "allow_archives"),
     "global_filters_archive_exts": ("global_filters", "archive_exts"),

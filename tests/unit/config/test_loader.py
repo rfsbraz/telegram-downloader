@@ -79,6 +79,10 @@ class TestParseValue:
         result = _parse_value("throttle_seconds", "60")
         assert result == 60
 
+        # Test _port suffix (TDL_METRICS_PORT)
+        result = _parse_value("metrics_port", "9184")
+        assert result == 9184
+
 
 class TestLoadFromEnv:
     """Tests for _load_from_env function."""
@@ -108,6 +112,17 @@ class TestLoadFromEnv:
         result = _load_from_env()
         assert result["daemon"]["enabled"] is True
         assert result["daemon"]["check_interval"] == 600
+
+    def test_nested_metrics_config(self, clean_env, monkeypatch):
+        """TDL_METRICS_ENABLED and TDL_METRICS_PORT nest under metrics."""
+        monkeypatch.setenv("TDL_API_ID", "12345")
+        monkeypatch.setenv("TDL_API_HASH", "abc123")
+        monkeypatch.setenv("TDL_METRICS_ENABLED", "true")
+        monkeypatch.setenv("TDL_METRICS_PORT", "9100")
+
+        result = _load_from_env()
+        assert result["metrics"]["enabled"] is True
+        assert result["metrics"]["port"] == 9100
 
     def test_sources_array(self, clean_env, monkeypatch):
         """Sources array should be parsed correctly."""
@@ -265,6 +280,31 @@ class TestLoadConfig:
         with pytest.raises(ConfigError) as exc_info:
             load_config(str(config_file))
         assert "validation failed" in str(exc_info.value).lower()
+
+    def test_metrics_disabled_by_default(self, clean_env, minimal_yaml_config):
+        """load_config leaves Prometheus metrics off when unset."""
+        config = load_config(str(minimal_yaml_config))
+        assert config.metrics.enabled is False
+        assert config.metrics.port == 9184
+
+    def test_metrics_from_yaml(self, clean_env, yaml_config_file):
+        config_file = yaml_config_file("""
+api_id: 12345
+api_hash: abc123def456789012345678901234ab
+metrics:
+  enabled: true
+  port: 9100
+""")
+        config = load_config(str(config_file))
+        assert config.metrics.enabled is True
+        assert config.metrics.port == 9100
+
+    def test_metrics_from_env(self, clean_env, monkeypatch, minimal_yaml_config):
+        monkeypatch.setenv("TDL_METRICS_ENABLED", "true")
+        monkeypatch.setenv("TDL_METRICS_PORT", "9100")
+        config = load_config(str(minimal_yaml_config))
+        assert config.metrics.enabled is True
+        assert config.metrics.port == 9100
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

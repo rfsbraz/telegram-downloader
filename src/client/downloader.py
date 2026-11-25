@@ -75,6 +75,9 @@ def _start_cooldown(seconds: float) -> float:
     global _cooldown_until
     wait = seconds + FLOOD_WAIT_MARGIN
     _cooldown_until = max(_cooldown_until, time.monotonic() + wait)
+    if seconds:
+        from src.metrics import get_metrics
+        get_metrics().record_floodwait(seconds)
     return wait
 
 

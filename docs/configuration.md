@@ -198,6 +198,44 @@ Discord webhooks and generic HTTP POST notifications. Nothing is sent unless `TD
       discord_webhook_url: "https://discord.com/api/webhooks/123/abc"
     ```
 
+## Metrics
+
+Opt-in Prometheus `/metrics` endpoint. It is off by default and starts an HTTP server in a background thread when enabled. The endpoint is unauthenticated, so bind it to a private network.
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `TDL_METRICS_ENABLED` | boolean | `false` | Expose the `/metrics` endpoint |
+| `TDL_METRICS_PORT` | integer | `9184` | Listen port (1-65535) |
+
+=== "Environment Variables"
+
+    ```yaml
+    - TDL_METRICS_ENABLED=true
+    - TDL_METRICS_PORT=9184
+    ```
+
+=== "config.yaml"
+
+    ```yaml
+    metrics:
+      enabled: true
+      port: 9184
+    ```
+
+=== "Docker Compose"
+
+    ```yaml
+    ports:
+      - "127.0.0.1:9184:9184"
+    environment:
+      - TDL_METRICS_ENABLED=true
+      - TDL_METRICS_PORT=9184
+    ```
+
+    The published port is bound to loopback so the unauthenticated endpoint is not reachable from other hosts. If Prometheus runs on the same Compose network, scrape `telegram-downloader:9184` and omit the `ports` mapping.
+
+The counters follow the same events as the run summary. Dry-run checks record duration and last-check time, but they do not increment download, skip, or failure counters. See the [metrics guide](metrics.md) for the scrape snippet, the full metric list, and a starter Grafana dashboard.
+
 ## Source Configuration
 
 Configure download sources (channels, groups, forum topics, private chats).
@@ -364,6 +402,10 @@ daemon:
 notifications:
   enabled: true
   discord_webhook_url: "https://discord.com/api/webhooks/123/abc"
+
+metrics:
+  enabled: false
+  port: 9184
 
 sources:
   - url: "https://t.me/channel1"

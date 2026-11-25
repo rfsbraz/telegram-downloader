@@ -41,6 +41,13 @@ from src.notifications import NotificationManager, DiscordNotifier, GenericWebho
 from src.client.errors import AUTH_ERRORS
 from src.daemon.health import HealthMonitor
 from src.daemon.service import notify_low_disk_space
+from src.metrics import (
+    SKIP_REASON_KEYS,
+    configure as configure_metrics,
+    get_metrics,
+    shutdown as shutdown_metrics,
+    source_label,
+)
 
 
 def setup_logging(log_file: str, verbosity: str) -> logging.Logger:
@@ -236,6 +243,7 @@ async def download_batch(
     history: "DownloadHistory | None" = None,
     limiter: "RateLimiter | None" = None,
     include_photos: bool = False,
+    metrics_source: str | None = None,
 ) -> tuple[dict, set[int], set[int]]:
     """Download a batch of messages concurrently with semaphore limit.
 
@@ -275,6 +283,21 @@ async def download_batch(
     failed_ids: set[int] = set()
     deferred_ids: set[int] = set()
     reserve = diskspace.reserve_bytes(config)
+    label = metrics_source or source_label(source_config, cursor_key)
+    metrics = get_metrics()
+
+    def note_downloaded(count: int = 1, bytes_count: int = 0) -> None:
+        stats["downloaded"] += count
+        stats["bytes_downloaded"] += bytes_count
+        metrics.record_downloaded(label, count, bytes_count)
+
+    def note_skipped(reason_key: str) -> None:
+        stats[reason_key] += 1
+        metrics.record_skipped(label, SKIP_REASON_KEYS[reason_key], 1)
+
+    def note_failed(msg_id: int) -> None:
+        failed_ids.add(msg_id)
+        metrics.record_failed(label, 1)
     # Downloads already started in this batch: msg id -> (size, partial file). Their
     # unwritten bytes count against the free space, so concurrent downloads can't all pass
     # the check against the same free space. Written bytes are already in free_bytes.
@@ -299,7 +322,7 @@ async def download_batch(
                 fname = media_filename(msg, msg.photo) or f"message_{msg.id}"
                 log.info(f"Skip (photos disabled): {fname}")
                 cursor_store.set(cursor_key, msg.id)
-                stats["skipped_filter"] += 1
+                note_skipped("skipped_filter")
                 return
             media = get_media(msg, include_photos=include_photos)
             fname = media_filename(msg, media) if media else f"message_{msg.id}"
@@ -310,7 +333,7 @@ async def download_batch(
             if history and file_unique_id and history.contains(file_unique_id):
                 log.info(f"Skip (already downloaded): {fname}")
                 cursor_store.set(cursor_key, msg.id)
-                stats["skipped_tracked"] += 1
+                note_skipped("skipped_tracked")
                 return
 
             # Build organized destination path (includes per-source folder and validation)
@@ -331,7 +354,7 @@ async def download_batch(
             except ValueError as e:
                 log.error(f"Path validation failed for {fname}: {e}")
                 cursor_store.set(cursor_key, msg.id)
-                stats["skipped_error"] += 1
+                note_skipped("skipped_error")
                 return
 
             # Check for duplicates and resolve conflicts
@@ -339,7 +362,7 @@ async def download_batch(
                 if is_duplicate(dest, media_size):
                     log.info(f"Skip duplicate: {dest.name} (same size)")
                     cursor_store.set(cursor_key, msg.id)
-                    stats["skipped_duplicate"] += 1
+                    note_skipped("skipped_duplicate")
                     return
                 # Different content, resolve conflict
                 original_dest = dest
@@ -349,7 +372,7 @@ async def download_batch(
                 except RuntimeError as e:
                     log.error(f"Cannot resolve conflict for {dest.name}: {e}")
                     cursor_store.set(cursor_key, msg.id)
-                    stats["skipped_error"] += 1
+                    note_skipped("skipped_error")
                     return
 
             # Disk space guard (issue #61): keep it pending for the next run
@@ -389,8 +412,7 @@ async def download_batch(
                 in_flight.pop(msg.id, None)
 
             if success:
-                stats["downloaded"] += 1
-                stats["bytes_downloaded"] += media_size or 0
+                note_downloaded(1, media_size or 0)
                 cursor_store.set(cursor_key, msg.id)
                 if history and file_unique_id:
                     history.record(file_unique_id, fname, media_size, cursor_key, msg.id)
@@ -410,7 +432,7 @@ async def download_batch(
                     )
             else:
                 log.error(f"Failed to download: {dest.name}")
-                failed_ids.add(msg.id)
+                note_failed(msg.id)
 
     # Use TaskGroup (Python 3.11+) for structured concurrency
     async with asyncio.TaskGroup() as tg:
@@ -518,6 +540,24 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
         bytes downloaded, duration) for notification channels.
     """
     run_started = time.monotonic()
+    try:
+        result = await _run_check_body(
+            cfg, log, state_store, client, sources_with_filters,
+            history, pending, limiter, run_started,
+        )
+    except BaseException:
+        get_metrics().record_check(
+            time.monotonic() - run_started, completed=False
+        )
+        raise
+    else:
+        get_metrics().record_check(time.monotonic() - run_started)
+        return result
+
+
+async def _run_check_body(
+    cfg, log, state_store, client, sources_with_filters, history, pending, limiter, run_started
+):
     totals = {
         "downloaded": 0,
         "skipped_duplicate": 0,
@@ -566,9 +606,11 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
     for source, composite_filter, source_config in sources_with_filters:
         cursor_key = source.get_cursor_key()
         display_name = cursor_key
+        label = source_label(source_config, display_name)
         try:
             last_seen_id = state_store.get(cursor_key, 0)
             display_name = await source.get_display_name()
+            label = source_label(source_config, display_name)
 
             log.info("=" * 60)
             log.info(
@@ -676,6 +718,7 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
                     state_store, cursor_key, cfg, log, source, source_config, history,
                     limiter,
                     include_photos=getattr(composite_filter, "include_photos", False),
+                    metrics_source=label,
                 )
 
                 # Remove from pending: orphaned + processed (everything except
@@ -732,6 +775,17 @@ async def run_check(cfg, log, state_store, client, sources_with_filters, history
                 f"Source {display_name} failed, continuing with the next one: {e}",
                 exc_info=True,
             )
+        finally:
+            metrics = get_metrics()
+            if metrics.enabled and not dry_run and pending is not None:
+                try:
+                    metrics.set_pending_queue_size(label, pending.count(cursor_key))
+                except Exception:
+                    log.debug(
+                        "Failed to update pending queue metric for %s",
+                        label,
+                        exc_info=True,
+                    )
 
     # --- Run summary (issue #34) ---
     duration = time.monotonic() - run_started
@@ -868,6 +922,10 @@ async def main(
         log.setLevel(getattr(logging, cfg.daemon.log_level.upper()))
     warn_ignored_settings(cfg, log)
 
+    if getattr(getattr(cfg, "metrics", None), "enabled", False) is True:
+        metrics = configure_metrics(True, port=cfg.metrics.port)
+        log.info(f"Prometheus metrics enabled at 0.0.0.0:{metrics.port}/metrics")
+
     # Initialize state store (in sessions dir so it persists via volume mount).
     # Dry-run uses in-memory clones so the session dir, state.db, WAL, and
     # state.yaml are never created or rewritten.
@@ -968,6 +1026,7 @@ async def main(
         await wait_for_shutdown()
     finally:
         # Cleanup
+        shutdown_metrics()
         if history:
             history.close()
         pending.close()
