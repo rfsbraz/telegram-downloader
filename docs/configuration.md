@@ -58,6 +58,12 @@ Examples:
 | `TDL_API_ID` | integer | Yes | API ID from https://my.telegram.org/apps |
 | `TDL_API_HASH` | string | Yes | API hash from https://my.telegram.org/apps |
 | `TDL_PHONE_NUMBER` | string | No | Phone number with country code (e.g., +1234567890). If omitted, you are asked for it at first login |
+| `TDL_SESSION_STRING` | string | No | Exported login from the `auth` command. Wins over the session file and the interactive login. Treat it like a password |
+
+!!! warning "Treat the session string like a password"
+    `TDL_SESSION_STRING` is your Telegram login, not just a setting. Anyone who has it can use your account. Keep it out of git and shared compose files, and end the session under Telegram Settings, Devices if it leaks.
+
+    To get one, run `docker run -it --rm -e TDL_API_ID=... -e TDL_API_HASH=... rfsbraz/telegram-downloader:latest auth`, answer the prompts, and copy the string it prints. Order of use: `TDL_SESSION_STRING`, then the session file, then the interactive login.
 
 === "Environment Variables"
 

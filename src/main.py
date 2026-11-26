@@ -34,6 +34,7 @@ from src.sources.base import BaseSource
 from src.media import collect_matching_ids, get_media, is_photo_only, media_filename
 from src.state import CursorStore, DownloadHistory, PendingDownloads
 from src.client import create_client, diskspace, download_media_with_retry
+from src.client.auth import run_auth
 from src.client.downloader import DiskFullError, temp_path
 from src.client.hooks import run_post_download_hook
 from src.client.ratelimit import RateLimiter, parse_rate
@@ -976,6 +977,8 @@ async def main(
     notification_manager = build_notification_manager(cfg, log)
 
     # Create Pyrogram client
+    if cfg.session_string:
+        log.info("Logging in with TDL_SESSION_STRING (session file ignored)")
     client = create_client(cfg)
 
     try:
@@ -1034,9 +1037,22 @@ async def main(
         log.info("Execution complete")
 
 
+async def auth_command(config_path: str = "/app/config.yaml") -> None:
+    """`auth`: log in once and print the session string for TDL_SESSION_STRING."""
+    await run_auth(load_config(config_path))
+
+
+async def cli(argv: list[str]) -> None:
+    """Run the `auth` helper when asked, otherwise the downloader."""
+    if argv[:1] == ["auth"]:
+        await auth_command()
+    else:
+        await main()
+
+
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        asyncio.run(cli(sys.argv[1:]))
     except KeyboardInterrupt:
         sys.exit(0)
     except ConfigError as e:

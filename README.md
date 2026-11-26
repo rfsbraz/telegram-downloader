@@ -73,6 +73,19 @@ docker compose run --rm telegram-downloader
 
 On first run, you'll be prompted for the Telegram verification code sent to your phone. After authentication, restart with `docker compose up -d` for daemon mode.
 
+### Headless login with a session string
+
+To skip the interactive login in the runtime container, log in once and export the session string:
+
+```bash
+docker run -it --rm -e TDL_API_ID=YOUR_API_ID -e TDL_API_HASH=YOUR_API_HASH \
+  rfsbraz/telegram-downloader:latest auth
+```
+
+Answer the phone, code and 2FA prompts. The string is printed at the end; put it in your compose file as `TDL_SESSION_STRING=...`. It takes precedence over the session file and the interactive login.
+
+> **Treat the session string like a password.** It gives full access to your Telegram account. Keep it out of git and public compose files (use a secret or an `.env` file), and revoke it under Telegram Settings, Devices if it leaks.
+
 ## Configuration
 
 All configuration is done via environment variables with the `TDL_` prefix. See the [full configuration reference](https://rfsbraz.github.io/telegram-downloader/configuration/) for all options.

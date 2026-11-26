@@ -119,6 +119,10 @@ class Config(BaseModel):
     api_hash: str = Field(..., min_length=1)
     phone_number: Optional[str] = None
 
+    # Exported login (`auth` command). Wins over the session file and the
+    # interactive login. It is the account session: never log or print it.
+    session_string: Optional[str] = Field(default=None, repr=False)
+
     # Test mode - connects to Telegram's test servers (DC2: 149.154.167.40:443)
     # Use for debugging authentication issues without affecting production sessions
     test_mode: bool = Field(default=False)
@@ -240,6 +244,14 @@ class Config(BaseModel):
             except Exception as e:
                 raise ValueError(f"Invalid min_free_space '{v}': {e}")
         return v
+
+    @field_validator("session_string")
+    @classmethod
+    def blank_session_string_is_unset(cls, v):
+        """An empty TDL_SESSION_STRING (e.g. an unset compose variable) means no string."""
+        if v is None or not v.strip():
+            return None
+        return v.strip()
 
     @field_validator("api_hash")
     @classmethod
