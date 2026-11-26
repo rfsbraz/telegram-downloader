@@ -110,6 +110,9 @@ docker compose logs -f
 !!! note "Authentication with Daemon Mode"
     For daemon mode, you may need to temporarily set `TDL_DAEMON_ENABLED=false`, authenticate, then re-enable daemon mode and restart the service.
 
+!!! tip "Installing on Unraid"
+    Use the Community Applications user template and the one-shot login steps in [Install on Unraid](deployment.md#install-on-unraid). The container console cannot accept the Telegram login code.
+
 ### 5. Monitor Operation
 
 ```bash
