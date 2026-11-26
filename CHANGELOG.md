@@ -5,6 +5,14 @@
 
 * add missing dependency ([4542021](https://github.com/rfsbraz/telegram-downloader/commit/454202198134f12a4e8561bde262b69cad10035b))
 
+## [1.8.0](https://github.com/rfsbraz/telegram-downloader/compare/v1.7.0...v1.8.0) (2026-11-26)
+
+
+### Features
+
+* **metrics:** add opt-in prometheus /metrics endpoint ([#132](https://github.com/rfsbraz/telegram-downloader/issues/132)) ([8557cd1](https://github.com/rfsbraz/telegram-downloader/commit/8557cd10bf0fafd903ba6a3418b126fef86d14d3))
+* **unraid:** add a Community Applications XML template ([#131](https://github.com/rfsbraz/telegram-downloader/issues/131)) ([2e5b2fe](https://github.com/rfsbraz/telegram-downloader/commit/2e5b2feb3652d3895dbd5ba96efd5654794b7e16))
+
 ## [1.7.0](https://github.com/rfsbraz/telegram-downloader/compare/v1.6.0...v1.7.0) (2026-11-16)
 
 
